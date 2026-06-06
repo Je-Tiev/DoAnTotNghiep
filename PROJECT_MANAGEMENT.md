@@ -4,13 +4,13 @@
 
 | Subsystem | Status | Priority | Est. % Complete |
 |-----------|--------|----------|-----------------|
-| STM32 #1 (Sensor Node) | In Progress | High | 19% |
-| STM32 #2 (Gateway Node) | Not Started | High | 0% |
-| Raspberry Pi 4 (Server) | In Progress | Medium | 15% |
+| STM32 #1 (Sensor Node) | Complete | High | 90% |
+| STM32 #2 (Gateway Node) | In Progress | High | 60% |
+| Raspberry Pi 4 (Server) | Not Started | Medium | 0% |
 | Integration Testing | Not Started | Critical | 0% |
 
-**Project Status**: In Progress (Subsystems A & C)
-**Overall Progress**: 13% (15/114 tasks completed)
+**Project Status**: STM32 #1 & #2 Partial Integration
+**Overall Progress**: 50% (60/114 tasks completed)
 
 ---
 
@@ -24,64 +24,64 @@
 - [x] Configure GPIO for 74HC595 shift register (CS, MOSI, CLK)
 - [x] Configure ADC channels for potentiometers (ADC0, ADC1, ADC2)
 - [x] Configure CAN interface (CAN_TX, CAN_RX pins)
-- [ ] Validate hardware connections on breadboard/PCB
-- [~] Create hardware pinout documentation
+- [x] Validate hardware connections on breadboard/PCB
+- [x] Create hardware pinout documentation
 
 #### A.2 Keypad Matrix Driver
 - [x] Implement row scanning algorithm
-- [~] Implement debouncing logic (20-50ms)
-- [~] Create key-to-value mapping (12 buttons)
+- [x] Implement debouncing logic (20-50ms)
+- [x] Create key-to-value mapping (12 buttons)
 - [x] Test individual key detection
-- [~] Test key combination handling
-- [~] Unit test: verify all 12 buttons register correctly
+- [x] Test key combination handling
+- [x] Unit test: verify all 12 buttons register correctly
 
 #### A.3 LED Control via 74HC595
-- [ ] Implement SPI communication with shift register
-- [ ] Implement LED pattern functions (on, off, blink, pulse)
-- [ ] Create LED state management (8-bit register)
-- [ ] Test individual LED control
-- [ ] Test simultaneous multi-LED patterns
-- [ ] Unit test: verify all 8 LEDs response
+- [x] Implement SPI communication with shift register
+- [x] Implement LED pattern functions (on, off, blink, pulse)
+- [x] Create LED state management (8-bit register)
+- [x] Test individual LED control
+- [x] Test simultaneous multi-LED patterns
+- [x] Unit test: verify all 8 LEDs response
 
 #### A.4 ADC Potentiometer Reading
-- [ ] Configure ADC in continuous mode
-- [ ] Implement ADC sampling (0-4095 → 0-255 or 0-1023)
-- [ ] Implement noise filtering/averaging (rolling average)
+- [x] Configure ADC in continuous mode
+- [x] Implement ADC sampling (0-4095 → 0-65535 via DMA)
+- [~] Implement noise filtering/averaging (rolling average) - partial
 - [ ] Create potentiometer calibration routine
-- [ ] Test analog-to-digital conversion accuracy
-- [ ] Unit test: verify stable readings within tolerance
+- [x] Test analog-to-digital conversion accuracy
+- [x] Unit test: verify stable readings within tolerance
 
 #### A.5 CAN Communication Setup
-- [ ] Configure CAN peripheral (250kbps standard for automotive)
-- [ ] Define message ID (0x100 - Sensor Node)
-- [ ] Create CAN frame structure (DLC: 8 bytes)
+- [x] Configure CAN peripheral (250kbps standard for automotive)
+- [x] Define message ID (0x100 - Control, 0x200 - Sensor)
+- [x] Create CAN frame structure (DLC: 8 bytes for sensor, 4 for control)
   - Byte 0-1: Button state (16 bits for 12 buttons + padding)
   - Byte 2-3: Potentiometer 1 (16-bit ADC)
   - Byte 4-5: Potentiometer 2 (16-bit ADC)
   - Byte 6-7: Potentiometer 3 (16-bit ADC)
-- [ ] Implement CAN transmission routine
-- [ ] Test CAN frame transmission with analyzer
+- [x] Implement CAN transmission routine
+- [x] Test CAN frame transmission with analyzer
 
 #### A.6 Data Packing Algorithm
 - [x] Create struct for sensor data: `sensor_data_t`
 - [x] Implement data packing function: `pack_sensor_data()`
-- [ ] Implement CAN frame formatter
-- [ ] Add timestamp/sequence number (optional)
-- [ ] Unit test: verify packing/unpacking consistency
+- [x] Implement CAN frame formatter
+- [x] Add timestamp/sequence number (optional)
+- [x] Unit test: verify packing/unpacking consistency
 
 #### A.7 Main Application Loop
 - [x] Create FreeRTOS task for keypad reading (100ms period)
 - [x] Create FreeRTOS task for ADC sampling (50ms period)
 - [x] Create FreeRTOS task for CAN transmission (100ms period)
-- [ ] Implement task synchronization (mutexes/semaphores)
-- [?] Add watchdog timer
-- [ ] Integration test: all three tasks running without conflicts
+- [x] Implement task synchronization (mutexes/semaphores)
+- [ ] Add watchdog timer
+- [x] Integration test: all three tasks running without conflicts
 
 #### A.8 Debugging & Testing
-- [ ] Set up serial debugging interface (UART)
-- [ ] Implement debug output for all sensor values
-- [ ] Create test harness for manual testing
-- [ ] End-to-end test on hardware
+- [x] Set up serial debugging interface (UART)
+- [x] Implement debug output for all sensor values
+- [x] Create test harness for manual testing
+- [x] End-to-end test on hardware
 
 ---
 
@@ -94,60 +94,61 @@
 - [x] Configure GPIO for W5500 reset and interrupt pins
 - [x] Configure UART for debugging
 - [x] Validate hardware connections
-- [~] Create hardware pinout documentation
+- [x] Create hardware pinout documentation
 
 #### B.2 CAN Communication Setup
-- [ ] Configure CAN peripheral (250kbps - must match STM32 #1)
-- [x] Set up CAN receive filters (ID: 0x100 for Sensor Node)
+- [x] Configure CAN peripheral (250kbps - must match STM32 #1)
+- [x] Set up CAN receive filters (ID: 0x100 for Control, 0x200 for Sensor)
 - [x] Create CAN frame receive interrupt handler
 - [x] Implement CAN receive queue/buffer
-- [ ] Test CAN frame reception from STM32 #1
+- [x] Test CAN frame reception from STM32 #1
 
 #### B.3 CAN Frame Parsing
 - [x] Create struct for CAN message: `can_message_t`
-- [x] Implement CAN frame unpacking function: `unpack_can_frame()`
-- [ ] Validate received data (checksum/length check)
-- [ ] Extract sensor values from CAN frame
-- [ ] Create parsing error handling
-- [ ] Unit test: verify parsing with known test frames
+- [x] Implement CAN frame unpacking function: `decodeCAN()`
+- [x] Validate received data (checksum/length check)
+- [x] Extract sensor values from CAN frame
+- [x] Create parsing error handling with diagnostics
+- [x] Unit test: verify parsing with known test frames
 
 #### B.4 W5500 Ethernet Driver Setup
-- [ ] Initialize W5500 via SPI
-- [ ] Configure MAC address, IP address, subnet, gateway
-- [ ] Set up socket parameters (TCP server or UDP)
-- [ ] Implement SPI read/write functions
-- [ ] Test W5500 communication (SPI handshake)
+- [x] Initialize W5500 via SPI
+- [x] Configure MAC address, IP address, subnet, gateway
+- [x] Set up socket parameters (UDP mode configured)
+- [x] Implement SPI read/write functions
+- [x] Test W5500 communication (SPI handshake)
 
 #### B.5 Ethernet Communication Protocol
-- [ ] Define data packet format to send to Raspberry Pi
-  - Header: 0xAA 0x55 (sync bytes)
-  - Length: 2 bytes (message length)
-  - Data: sensor values
-  - CRC: 2 bytes (checksum)
-- [ ] Implement TCP socket creation (listening on port 5000)
-- [ ] Implement packet transmission function
-- [ ] Implement client connection handling (accept, store client info)
+- [x] Define data packet format to send to Raspberry Pi
+  - Header: UDP packet with network info
+  - Data: VehicleState_t (control + sensor fields)
+  - CRC: Optional (UDP provides basic checksum)
+- [x] Implement UDP socket creation (port 5000)
+- [x] Implement packet transmission function
+- [~] Implement client connection handling - partial
 - [ ] Handle client disconnect/reconnect
 
 #### B.6 Data Forwarding Logic
-- [ ] Create data forwarding task
-- [ ] Implement CAN → Ethernet conversion
-- [ ] Add timestamp to packets (optional)
-- [ ] Handle multiple clients (broadcast vs unicast decision)
-- [ ] Implement rate limiting (100ms minimum between sends)
-- [ ] Buffer management for dropped frames
+- [x] Create data forwarding task
+- [x] Implement CAN → Ethernet conversion
+- [~] Add timestamp to packets - optional
+- [~] Handle multiple clients - UDP broadcast mode
+- [~] Implement rate limiting (100ms minimum between sends)
+- [~] Buffer management for dropped frames
 
 #### B.7 Main Application Loop
-- [ ] Create FreeRTOS task for CAN receive (event-driven)
-- [ ] Create FreeRTOS task for W5500 data transmission (100ms)
+- [x] Create FreeRTOS task for CAN receive (interrupt-driven)
+- [x] Create FreeRTOS task for Ethernet data transmission (event-driven)
 - [ ] Create FreeRTOS task for connection management (1s)
-- [ ] Implement task synchronization
+- [x] Implement task synchronization (message queue)
 - [ ] Add watchdog timer
-- [ ] Integration test: CAN → Ethernet forwarding
+- [~] Integration test: CAN → Ethernet forwarding - partial
 
 #### B.8 Debugging & Testing
 - [ ] Set up serial debug output (UART)
 - [ ] Implement frame logging (CAN and Ethernet packets)
+- [ ] Create packet sniffer for validation
+- [ ] End-to-end test: receive from STM32 #1 and send to network
 - [ ] Create Ethernet packet sniffer for validation
 - [ ] End-to-end test: receive from STM32 #1 and send to network
 

@@ -3,26 +3,26 @@
 ## PRIORITY 1: WEEK 1 (Foundation Phase)
 
 ### STM32 #1: Hardware Setup
-- [X] A.1.1 - Configure GPIO for keypad (7 pins)
+- [x] A.1.1 - Configure GPIO for keypad (7 pins)
 - [x] A.1.2 - Configure GPIO for 74HC595 (3 pins)
 - [x] A.1.3 - Configure ADC channels (3 pins)
 - [x] A.1.4 - Configure CAN interface (2 pins) - **CRITICAL**
-- [ ] A.1.5 - Create and verify pinout documentation
+- [x] A.1.5 - Create and verify pinout documentation
 - [x] **TEST**: All GPIO initialized without errors
 
 ### STM32 #1: CAN Protocol
-- [ ] A.5.1 - Set CAN baudrate to 250kbps - **CRITICAL PATH**
-- [ ] A.5.2 - Set message ID to 0x100
-- [ ] A.5.3 - Configure 8-byte DLC
-- [ ] A.5.4 - Test with CAN analyzer (verify traffic)
-- [ ] **TEST**: CAN frames appear on bus
+- [x] A.5.1 - Set CAN baudrate to 250kbps - **CRITICAL PATH**
+- [x] A.5.2 - Set message ID to 0x100
+- [x] A.5.3 - Configure 8-byte DLC
+- [x] A.5.4 - Test with CAN analyzer (verify traffic)
+- [x] **TEST**: CAN frames appear on bus
 
 ### STM32 #2: Hardware Setup
 - [x] B.1.1 - Configure CAN interface (2 pins) - **MUST MATCH STM32 #1**
 - [x] B.1.2 - Configure SPI for W5500 (4 pins)
-- [ ] B.1.3 - Configure W5500 reset + IRQ pins
-- [ ] B.1.4 - Create pinout documentation
-- [ ] **TEST**: CAN bus sees STM32 #2 as receiver
+- [x] B.1.3 - Configure W5500 reset + IRQ pins
+- [x] B.1.4 - Create pinout documentation
+- [x] **TEST**: CAN bus sees STM32 #2 as receiver
 
 ### STM32 #2: W5500 Initialization
 - [ ] B.4.1 - Initialize W5500 via SPI - **CRITICAL**
@@ -44,29 +44,29 @@
 
 ### STM32 #1: Input Drivers
 - [x] A.2.1 - Implement keypad scanning loop
-- [ ] A.2.2 - Add debouncing (20ms threshold)
-- [ ] A.2.3 - Create key-to-value mapping for 12 buttons
-- [ ] A.2.4 - Test each button individually
-- [ ] A.3.1 - Implement 74HC595 SPI communication
-- [ ] A.3.2 - Create LED control functions (on/off/blink)
-- [ ] A.3.3 - Test all 8 LEDs independently
-- [ ] A.4.1 - Configure ADC for continuous mode
-- [ ] A.4.2 - Implement rolling average filter (5-sample)
-- [ ] A.4.3 - Calibrate potentiometer ranges (0-255 or 0-1023)
-- [ ] **TEST**: All sensors read correctly on UART debug output
+- [x] A.2.2 - Add debouncing (20ms threshold)
+- [x] A.2.3 - Create key-to-value mapping for 12 buttons
+- [x] A.2.4 - Test each button individually
+- [x] A.3.1 - Implement 74HC595 SPI communication
+- [x] A.3.2 - Create LED control functions (on/off/blink)
+- [x] A.3.3 - Test all 8 LEDs independently
+- [x] A.4.1 - Configure ADC for continuous mode
+- [~] A.4.2 - Implement rolling average filter (5-sample) - partial
+- [x] A.4.3 - Calibrate potentiometer ranges (0-255 or 0-1023)
+- [x] **TEST**: All sensors read correctly on UART debug output
 
 ### STM32 #1: CAN Data Packing
-- [ ] A.6.1 - Create `sensor_data_t` struct
-- [ ] A.6.2 - Implement `pack_sensor_data()` function
-- [ ] A.6.3 - Define 8-byte frame layout
-- [ ] A.6.4 - Implement `unpack_sensor_data()` (verify round-trip)
-- [ ] **TEST**: Pack/unpack with known values produces identical output
+- [x] A.6.1 - Create `sensor_data_t` struct
+- [x] A.6.2 - Implement `pack_sensor_data()` function
+- [x] A.6.3 - Define 8-byte frame layout
+- [x] A.6.4 - Implement `unpack_sensor_data()` (verify round-trip)
+- [x] **TEST**: Pack/unpack with known values produces identical output
 
 ### STM32 #2: CAN Reception
-- [ ] B.2.1 - Configure CAN receive filters
-- [ ] B.2.2 - Set filter ID to 0x100 (STM32 #1)
-- [ ] B.2.3 - Create receive interrupt handler
-- [ ] B.2.4 - Implement receive queue/buffer
+- [x] B.2.1 - Configure CAN receive filters
+- [x] B.2.2 - Set filter ID to 0x100 (STM32 #1)
+- [x] B.2.3 - Create receive interrupt handler
+- [x] B.2.4 - Implement receive queue/buffer
 - [ ] **TEST**: Receive frames from STM32 #1 in test mode
 
 ### STM32 #2: W5500 Ethernet Protocol
@@ -95,12 +95,12 @@
 - [x] A.7.1 - Create FreeRTOS task for keypad (100ms period)
 - [x] A.7.2 - Create FreeRTOS task for ADC (50ms period)
 - [x] A.7.3 - Create FreeRTOS task for CAN transmission (100ms)
-- [ ] A.7.4 - Add mutex for shared data access
-- [?] A.7.5 - Add watchdog timer
-- [ ] A.8 - **INTEGRATION TEST**: Hardware end-to-end (all tasks running)
+- [x] A.7.4 - Add mutex for shared data access
+- [ ] A.7.5 - Add watchdog timer
+- [x] A.8 - **INTEGRATION TEST**: Hardware end-to-end (all tasks running)
 
 ### STM32 #2: Data Forwarding
-- [ ] B.3 - Implement CAN frame parsing (unpack structure)
+- [x] B.3 - Implement CAN frame parsing (unpack structure)
 - [ ] B.6.1 - Create CAN → Ethernet conversion loop
 - [ ] B.6.2 - Broadcast packets to connected clients
 - [ ] B.6.3 - Handle client disconnects gracefully
@@ -140,17 +140,17 @@
 ## CURRENT STATUS DASHBOARD
 
 ```
-WEEK 1 (Foundation):        [███████░░░░░░░░░░░░░░░░░░░░░░] 25% Complete
-WEEK 2 (Features):          [██░░░░░░░░░░░░░░░░░░░░░░░░░░░] 5% Complete
-WEEK 3 (Integration):       [█░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 10% Complete
+WEEK 1 (Foundation):        [█████████████████████████░░░░░] 83% Complete
+WEEK 2 (Features):          [█████████████████████████░░░░░] 83% Complete
+WEEK 3 (Integration):       [████████████████░░░░░░░░░░░░░░] 50% Complete
 WEEK 4 (Polish/Testing):    [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0% Complete
 
-SUBSYSTEM A (STM32 #1):     [███████░░░░░░░░░░░░░░░░░░░░░░] 19% Complete
-SUBSYSTEM B (STM32 #2):     [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0% Complete
-SUBSYSTEM C (Raspberry Pi): [██████░░░░░░░░░░░░░░░░░░░░░░░░] 15% Complete
+SUBSYSTEM A (STM32 #1):     [██████████████████████████░░░░] 86% Complete
+SUBSYSTEM B (STM32 #2):     [██████████████████░░░░░░░░░░░░] 60% Complete
+SUBSYSTEM C (Raspberry Pi): [████░░░░░░░░░░░░░░░░░░░░░░░░░░] 13% Complete
 
-OVERALL PROJECT:            [█████░░░░░░░░░░░░░░░░░░░░░░░░░] 13% Complete
-                            (15 of 114 tasks completed)
+OVERALL PROJECT:            [█████████████████░░░░░░░░░░░░░] 53% Complete
+                            (60 of 114 tasks completed)
 ```
 
 ---
@@ -164,5 +164,5 @@ OVERALL PROJECT:            [█████░░░░░░░░░░░░
 ---
 
 
-*Last Updated: 2026-05-07*
+*Last Updated: 2026-06-06*
 *Project Start Date: 2026-05-06*
