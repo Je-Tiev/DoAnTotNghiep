@@ -1,0 +1,73 @@
+# Project History & Documentation Changelog
+
+Tài liệu này lưu trữ lịch sử thay đổi của các file đặc tả hệ thống (`instruction.md`, `protocol.md`) để đảm bảo các Agent luôn nắm bắt được ngữ cảnh mới nhất.
+
+---
+
+## 2026-04-24: Khởi tạo & Chuẩn hóa Master Spec
+
+### [Updated] `instruction.md` (v2.0)
+- **Nội dung:** Cập nhật toàn bộ kiến trúc từ Prototype lên Production.
+- **Thay đổi chính:**
+    - Chốt vị trí đeo: Thắt lưng phía trước.
+    - Chia 2 giai đoạn: Phase 1 (Data collection) và Phase 2 (TinyML deployment).
+    - Quy định thuật toán té ngã Post-impact (< 1s).
+    - Tích hợp đếm bước chân và quãng đường dựa trên chiều cao.
+    - Chốt kết nối 4G LTE (A7680C).
+
+### [Initial] `project_configs/.env`
+- Thiết lập biến `${WORKSPACE_ROOT}` để đảm bảo tính di động của Project.
+
+---
+
+## 2026-04-24: Thiết kế UI/UX & Protocol v1.0
+
+### [New] `protocol.md` (v1.0)
+- **MQTT**: Đặc tả 4 topic chính (`telemetry`, `alert/fall`, `raw_imu`, `cmd`).
+- **REST API**: Đặc tả các endpoint quản lý cấu hình (chiều cao, tên) và lịch sử vận động.
+- **Data Collection**: Quy chuẩn gửi mảng 50 mẫu (Batch mode) với tần số 2Hz.
+
+### [UI/UX Decisions]
+- **Màn 1 (Dashboard)**: Giám sát Real-time, ưu tiên hiển thị trạng thái người đeo và cảnh báo té ngã khẩn cấp (Modal + Sound).
+- **Màn 2 (Config/History)**: Quản lý Metadata và xem lịch sử bước chân/quãng đường theo ngày.
+- **Màn 3 (Monitor)**: Chuyên dụng cho Phase 1, hiển thị Raw IMU 100Hz và công cụ thu thập mẫu train AI.
+
+### [System Optimization]
+- **Offloading Calculation**: Di chuyển logic tính toán quãng đường từ Firmware lên Backend (dựa trên metadata chiều cao).
+- **Telemetry Refinement**: Tách chi tiết các loại bước chân (`walk_steps`, `run_steps`).
+- **Context-aware Alerts**: Firmware nhận `user_name` từ Cloud để nhúng vào tin nhắn cảnh báo té ngã.
+
+---
+
+## 2026-04-24: Thiết kế Database Schema v1.0
+
+### [New] `schema.md` (v1.1)
+- **Relational DB (PostgreSQL)**: 
+    - Đơn giản hóa mô hình: Loại bỏ vai trò Người thân (Relative), chỉ tập trung vào Quản lý (Manager).
+    - Giữ vững cơ chế **Dynamic 1-1 Mapping** và mô hình Viện dưỡng lão (Organizations).
+
+---
+
+## 2026-05-01: Tối ưu hóa kiến trúc Dual-Database & Data Routing v2.0
+
+### [Updated] `instruction.md`
+- **Nội dung:** Chi tiết hóa luồng dữ liệu Dual-Database.
+- **Thay đổi chính:** Phân định rõ ranh giới lưu trữ: PostgreSQL (Metadata, Status, Alerts, Events) và InfluxDB (Pedometer, Raw IMU).
+
+### [Updated] `protocol.md` (v2.1)
+- **MQTT Refinement:**
+    - Tách topic `telemetry` cũ thành `status` (định kỳ 1p/lần) và `event` (chỉ gửi khi chuyển trạng thái).
+    - Cập nhật topic `alert/fall` tối ưu cho Real-time Dashboard (WSS direct sub).
+    - Quy chuẩn lại topic `telemetry/imu` cho Phase 1 (Batching data collection).
+- **REST API:**
+    - Thêm endpoint `GET /api/v1/devices/{device_id}/timeline` để phục vụ UI "Recent Activity Log".
+    - Điều chỉnh các endpoint History lấy dữ liệu đúng nguồn (Alerts từ Postgres, Pedometer từ InfluxDB).
+
+### [Updated] `schema.md` (v2.0)
+- **PostgreSQL Refinement:** 
+    - Thêm bảng `alerts` (Lịch sử té ngã & Quy trình xử lý).
+    - Thêm bảng `device_events` (Nhật ký hoạt động Timeline).
+    - Cập nhật bảng `devices` lưu trạng thái Pin và Online realtime.
+- **InfluxDB Refinement:**
+    - Tập trung vào dữ liệu chuỗi thời gian: `telemetry` (Pedometer) và `imu_raw` (Data Collection).
+    - Loại bỏ các trường Metadata/Alerts để tối ưu dung lượng và tốc độ truy vấn.

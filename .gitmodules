@@ -1,9 +1,0 @@
-[submodule "STM32-1st"]
-	path = STM32-1st
-	url = https://github.com/Je-Tiev/STM32_Sensor_CAN.git
-[submodule "STM32-2nd"]
-	path = STM32-2nd
-	url = https://github.com/Je-Tiev/STM32_Gateway_CAN.git
-[submodule "ClusterApp"]
-	path = ClusterApp
-	url = https://github.com/Je-Tiev/CarClusterApp.git
