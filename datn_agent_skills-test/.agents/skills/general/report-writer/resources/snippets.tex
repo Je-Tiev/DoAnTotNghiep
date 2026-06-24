@@ -1,0 +1,37 @@
+% snippets.tex — Mẫu hình/bảng/code/tham chiếu cho báo cáo.
+% Copy đoạn cần dùng, KHÔNG \input cả file này vào báo cáo.
+
+% ---------- Hình ----------
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.8\textwidth]{system_topology}
+  \caption{Sơ đồ tô-pô hệ thống (nguồn: architecture/system_topology.md).}
+  \label{fig:topology}
+\end{figure}
+% Tham chiếu:  Hình~\ref{fig:topology} mô tả ...
+
+% ---------- Bảng tín hiệu CAN ----------
+\begin{table}[H]
+  \centering
+  \caption{Tín hiệu trong frame 0x100 (nguồn: architecture/can_database.md).}
+  \label{tab:can-0x100}
+  \begin{tabular}{@{}llll@{}}
+    \toprule
+    Tín hiệu & Byte & Kiểu & Đơn vị \\
+    \midrule
+    % TODO[cần đo]: điền theo can_database.md
+    speed    & 0--1 & uint16 & km/h \\
+    rpm      & 2--3 & uint16 & vòng/phút \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% ---------- Trích code ----------
+\begin{lstlisting}[style=c, caption={Hàm encode frame (file:symbol — VD can_encode.c:can_pack_0x100).}, label={lst:can-pack}]
+// dán đoạn NGẮN, có ý nghĩa; ghi rõ file:symbol ở caption
+\end{lstlisting}
+
+% ---------- Tham chiếu tài liệu ----------
+% Trong văn bản:  ... theo chuẩn CAN 2.0B \cite{bosch_can}.
+% Trong refs.bib:
+% @manual{bosch_can, title={CAN Specification 2.0}, author={Robert Bosch GmbH}, year={1991}}

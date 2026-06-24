@@ -1,0 +1,81 @@
+{
+  "folders": [
+    {
+      "name": "DATN – Root",
+      "path": "."
+    },
+    {
+      "name": "STM32_Sensor_CAN (CubeIDE)",
+      "path": "C:\\Users\\coc14\\STM32CubeIDE\\workspace_2.1.1\\STM32_Sensor_CAN"
+    },
+    {
+      "name": "STM32_Gateway_CAN (CubeIDE)",
+      "path": "C:\\Users\\coc14\\STM32CubeIDE\\workspace_2.1.1\\STM32_Gateway_CAN"
+    },
+    {
+      "name": "CarClusterApp (Android Studio)",
+      "path": "C:\\Users\\coc14\\AndroidStudioProjects\\CarClusterApp"
+    }
+  ],
+  "settings": {
+    "files.associations": {
+      "*.c": "c",
+      "*.h": "c",
+      "*.s": "arm"
+    },
+    "C_Cpp.default.compilerPath": "arm-none-eabi-gcc",
+    "editor.tabSize": 2,
+    "files.exclude": {
+      "**/Debug/**": true,
+      "**/*.o": true,
+      "**/*.d": true,
+      "**/*.elf": true,
+      "**/*.map": true,
+      "**/*.list": true
+    },
+    "search.exclude": {
+      "**/Debug/**": true,
+      "**/Drivers/**": true,
+      "**/Middlewares/**": true,
+      "**/build/**": true,
+      "**/.gradle/**": true
+    }
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Re-link Sensor: recreate hard links (dùng khi CubeIDE tạo file mới)",
+        "type": "shell",
+        "command": "powershell",
+        "args": [
+          "-ExecutionPolicy", "Bypass", "-File",
+          "${workspaceFolder:DATN – Root}\\scripts\\setup-links.ps1",
+          "-Node", "sensor"
+        ],
+        "group": "build",
+        "presentation": { "reveal": "always" }
+      },
+      {
+        "label": "Re-link Gateway: recreate hard links (dùng khi CubeIDE tạo file mới)",
+        "type": "shell",
+        "command": "powershell",
+        "args": [
+          "-ExecutionPolicy", "Bypass", "-File",
+          "${workspaceFolder:DATN – Root}\\scripts\\setup-links.ps1",
+          "-Node", "gateway"
+        ],
+        "group": "build",
+        "presentation": { "reveal": "always" }
+      },
+      {
+        "label": "Re-link All (STM32 + Android)",
+        "dependsOn": [
+          "Re-link Sensor: recreate hard links (dùng khi CubeIDE tạo file mới)",
+          "Re-link Gateway: recreate hard links (dùng khi CubeIDE tạo file mới)"
+        ],
+        "group": { "kind": "build", "isDefault": true }
+      }
+    ]
+  }
+}

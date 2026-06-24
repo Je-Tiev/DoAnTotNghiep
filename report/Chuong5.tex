@@ -1,0 +1,199 @@
+% =====================================================================
+%  CHƯƠNG 5 — CÁC GIẢI PHÁP VÀ ĐÓNG GÓP NỔI BẬT
+%  Nguồn: datn_agent_skills-test/project_setup/architecture/DECISIONS.md
+%  Mỗi mục theo khung 3 phần: (i) dẫn dắt vấn đề, (ii) giải pháp, (iii) kết quả.
+%  KHÔNG lặp nội dung Chương 4 — chỉ tham chiếu chéo.
+%  Số đo thực nghiệm chưa có nguồn đánh dấu  % TODO[cần đo]
+% =====================================================================
+\documentclass[../DoAn.tex]{subfiles}
+\begin{document}
+
+Chương này trình bày những giải pháp và đóng góp kỹ thuật nổi bật mà tác giả tâm
+đắc nhất trong quá trình thực hiện đồ án. Mỗi đóng góp được đặt trong một mục độc
+lập gồm ba phần: dẫn dắt vấn đề, giải pháp đề xuất, và kết quả đạt được. Các chi
+tiết thiết kế đã mô tả ở Chương~4 không được lặp lại; mục này tập trung vào
+\emph{vấn đề khó}, \emph{lập luận lựa chọn} và \emph{cách khắc phục}.
+
+\section{Cầu nối CAN--Ethernet thời gian thực không mất khung}
+\label{section:5.1}
+
+\subsection*{(i) Vấn đề}
+Nút cổng kết nối phải ghép hai môi trường có bản chất trái ngược: mạng CAN
+\emph{hướng gói tin}, sự kiện rời rạc, độ ưu tiên thời gian thực cao; còn Ethernet
+trên nền TCP lại \emph{hướng dòng byte}. Sự lệch pha tốc độ giữa hai phía dễ gây
+mất khung CAN. Nghiêm trọng hơn, khi ứng dụng Android chưa mở cổng lắng nghe, lời
+gọi \texttt{connect()} ở chế độ chặn (blocking) sẽ khoá tác vụ gửi cho tới khi
+thiết lập được kết nối hoặc hết thời gian chờ; trong khoảng đó, ngắt nhận CAN vẫn
+liên tục đẩy khung vào hàng đợi khiến hàng đợi tràn và khung bị loại bỏ ngay tại
+ISR.
+
+\subsection*{(ii) Giải pháp}
+Tác giả thiết kế cơ chế đệm hai lớp kết hợp với socket \emph{không chặn}:
+\begin{itemize}
+  \item Ngắt nhận CAN chỉ làm một việc tối thiểu là đẩy khung vào hàng đợi an
+    toàn-ngắt \texttt{canToEthQueue} rồi trả quyền điều khiển ngay, tách hoàn toàn
+    phần thu nhận khỏi phần xử lý/truyền (xem~\ref{section:4.2.2}).
+  \item Socket W5500 được mở với cờ \texttt{SF\_IO\_NONBLOCK}: \texttt{connect()}
+    trả về \texttt{SOCK\_BUSY} tức thì, máy trạng thái tự tiến
+    \texttt{INIT}$\to$\texttt{SYNSENT}$\to$\texttt{ESTABLISHED} qua các vòng lặp
+    kế tiếp mà không khoá tác vụ gửi. Khi gặp timeout, chip tự đóng socket và mở
+    lại sạch sẽ, tạo khả năng tự phục hồi.
+\end{itemize}
+Nhờ đó tác vụ gửi luôn rút được hàng đợi, độc lập với trạng thái sẵn sàng của
+phía thu.
+
+\subsection*{(iii) Kết quả}
+Hiện tượng tràn hàng đợi và mất khung khi ứng dụng chưa sẵn sàng được loại bỏ;
+socket tự tiến tới trạng thái thiết lập và tự khôi phục sau sự cố mạng mà không
+cần can thiệp thủ công. Đóng góp này biến một liên kết "dễ gãy" thành một cầu nối
+bền vững, là điều kiện tiên quyết cho trải nghiệm thời gian thực của cụm đồng hồ.
+% TODO[cần đo]: thông lượng tối đa (frame/s) và tỉ lệ mất gói ở kịch bản tải cao (TC_ETH_02).
+
+\section{Giao thức tải tin tối giản tận dụng đảm bảo của TCP}
+\label{section:5.2}
+
+\subsection*{(i) Vấn đề}
+Một thiết kế giao thức theo lối kinh điển sẽ bọc dữ liệu trong khung có byte đồng
+bộ, trường độ dài, mã loại thông điệp và mã kiểm lỗi (CRC). Cách làm này tăng chi
+phí xử lý ở cả hai đầu và độ phức tạp phân giải, trong khi phần lớn các bảo đảm đó
+đã được lớp vận chuyển TCP cung cấp sẵn. Câu hỏi đặt ra là: với một liên kết
+TCP tin cậy, đâu là dạng tải tin tối giản nhưng vẫn đúng đắn?
+
+\subsection*{(ii) Giải pháp}
+Tác giả lựa chọn truyền \emph{nguyên khối} cấu trúc \texttt{VehicleState\_t} cố
+định 18~byte: Gateway \texttt{memcpy} cấu trúc vào bộ đệm rồi \texttt{send()},
+ứng dụng \texttt{readFully(18)} để gom đúng một ảnh chụp trạng thái. Do TCP đã bảo
+đảm thứ tự và toàn vẹn dòng byte, hệ thống không bổ sung byte đồng bộ hay CRC ở
+lớp ứng dụng; kích thước cố định cho phép phân giải bằng length-framing tầm
+thường. Đi kèm là cơ chế \emph{tích luỹ lai}: một cấu trúc trạng thái bền vững
+luôn giữ control mới nhất và sensor mới nhất, mỗi khung CAN hợp lệ kích hoạt gửi
+trọn ảnh chụp đầy đủ (chi tiết bố cục byte ở~\ref{section:4.2.4},
+Bảng~\ref{tab:tcp-packet}).
+
+\subsection*{(iii) Kết quả}
+Ứng dụng luôn nhận một trạng thái đầy đủ, nhất quán và không bao giờ phải hợp nhất
+cập nhật từng phần. Mã phân giải ở phía Android được rút gọn tối đa, đồng thời
+loại bỏ rủi ro lệch khung do phân tích sai byte đồng bộ. Giải pháp thể hiện
+nguyên tắc \emph{không lặp lại bảo đảm đã có ở tầng dưới} — một lựa chọn thiết kế
+đề cao sự đơn giản và tính đúng đắn.
+
+\section{Độ tin cậy lớp ứng dụng trên CAN và tự phục hồi bus-off}
+\label{section:5.3}
+
+\subsection*{(i) Vấn đề}
+Hai bài toán độc lập cùng xuất hiện trên liên kết CAN. Thứ nhất, cần phát hiện
+hỏng dữ liệu, mất khung và trùng khung ở mức ứng dụng, độc lập với bộ đếm lỗi
+phần cứng của bxCAN. Thứ hai, trong cấu hình ban đầu (one-shot, không bật
+\texttt{AutoBusOff}), khi thiếu phản hồi ACK trên liên kết hai nút, mailbox truyền
+bị kẹt và nút rơi vào trạng thái bus-off vĩnh viễn — biểu hiện là bộ đếm truyền
+"đóng băng" và không tự phục hồi.
+
+\subsection*{(ii) Giải pháp}
+\begin{itemize}
+  \item \textbf{Kiểm lỗi ở lớp ứng dụng:} mỗi khung mang một mã CRC8 (đa thức
+    0x07) và một bộ đếm số thứ tự 4-bit. Phía Gateway tính lại CRC8 và đối chiếu,
+    đồng thời theo dõi bước nhảy/trùng số thứ tự, ghi nhận vào bộ chẩn đoán
+    \texttt{canDecodeDiag} (\texttt{crc\_error}, \texttt{seq\_gap},
+    \texttt{seq\_duplicate}).
+  \item \textbf{Cấu hình độ tin cậy đúng ngữ cảnh:} bật
+    \texttt{AutoRetransmission} và \texttt{AutoBusOff} ở cả hai nút. Vì đây là
+    liên kết telemetry hai nút (không phải bus kích hoạt theo thời gian), việc cho
+    phép truyền lại và tự phục hồi bus-off là phù hợp.
+\end{itemize}
+
+\subsection*{(iii) Kết quả}
+Hệ thống vừa phát hiện được lỗi đường truyền ở mức ứng dụng (qua các bộ đếm chẩn
+đoán xuất ra UART), vừa tự thoát khỏi trạng thái bus-off thay vì treo vĩnh viễn.
+Sự kết hợp giữa phát hiện lỗi (CRC/sequence) và phục hồi tự động (AutoBusOff)
+mang lại một liên kết CAN vừa quan sát được vừa bền vững.
+% TODO[cần đo]: số liệu crc_error/seq_gap thu được qua thời gian chạy thực (TC_CAN_03).
+
+\section{Khắc phục lỗi đồng thời và khởi tạo trong hệ nhúng}
+\label{section:5.4}
+
+\subsection*{(i) Vấn đề}
+Quá trình tích hợp bộc lộ những lỗi điển hình nhưng khó truy vết của lập trình
+đồng thời và thứ tự khởi tạo:
+\begin{itemize}
+  \item \textbf{Tranh chấp khởi tạo (Gateway):} nếu bật ngắt nhận CAN trong
+    \texttt{main()} \emph{trước} khi bộ lập lịch chạy, một khung CAN đến trong lúc
+    \texttt{W5500\_Init()} đang thực thi sẽ khiến ISR gọi
+    \texttt{xQueueSendFromISR} vào một hàng đợi còn NULL, kích hoạt
+    \texttt{configASSERT} và treo vi điều khiển \emph{trước cả khi} in được dòng
+    khởi động — UART câm hoàn toàn, rất khó chẩn đoán.
+  \item \textbf{Tranh chấp cổng mạng (Android):} khi Activity sở hữu máy chủ TCP,
+    mỗi lần Activity bị tái tạo lại gọi mở cổng trên một thể hiện mới trong khi
+    thể hiện cũ chưa nhả cổng, gây lỗi \texttt{EADDRINUSE}.
+\end{itemize}
+
+\subsection*{(ii) Giải pháp}
+\begin{itemize}
+  \item Dời \texttt{HAL\_CAN\_Start} và \texttt{HAL\_CAN\_ActivateNotification}
+    vào \emph{đầu tác vụ} \texttt{Eth\_SendTask} — tức sau khi hàng đợi đã được
+    tạo và bộ lập lịch đã chạy — đồng thời thêm guard kiểm tra hàng đợi khác NULL
+    trong callback ngắt như lớp phòng vệ thứ hai.
+  \item Chuyển quyền sở hữu máy chủ TCP từ Activity sang một singleton phạm vi
+    tiến trình do dịch vụ nền (foreground service, \texttt{START\_STICKY}) quản
+    lý, để cổng \texttt{:5000} chỉ được bind đúng một lần cho cả tiến trình, độc
+    lập với vòng đời giao diện (xem~\ref{section:4.2.3}).
+\end{itemize}
+
+\subsection*{(iii) Kết quả}
+Vi điều khiển khởi động ổn định, không còn treo do tranh chấp ISR/hàng đợi; máy
+chủ TCP không còn lỗi tranh chấp cổng khi giao diện được tái tạo. Đóng góp này
+cho thấy việc tôn trọng \emph{thứ tự khởi tạo} và phân tách \emph{quyền sở hữu tài
+nguyên} theo đúng vòng đời là chìa khoá cho độ ổn định của hệ thống nhúng đa
+nhiệm.
+
+\section{Chẩn đoán liên kết Ethernet điểm-điểm}
+\label{section:5.5}
+
+\subsection*{(i) Vấn đề}
+Khi nối thẳng W5500 vào cổng \texttt{eth0} của Raspberry Pi, socket liên tục kẹt
+ở trạng thái \texttt{SYNSENT} và log báo "socket not ready, drop frame". Nguyên
+nhân là địa chỉ đích được cấu hình trùng với IP của giao diện Wi-Fi (\texttt{wlan0})
+chứ không phải giao diện thật mang gói tin (\texttt{eth0}); ngoài ra nếu đặt hai
+giao diện cùng dải địa chỉ, máy chủ sẽ có hai interface cùng mạng con gây nhập
+nhằng ARP/định tuyến.
+
+\subsection*{(ii) Giải pháp}
+Tách liên kết Ethernet điểm-điểm sang một \emph{mạng con riêng}
+\texttt{192.168.10.0/24}, độc lập hoàn toàn với dải Wi-Fi dùng cho gỡ lỗi; địa
+chỉ đích của W5500 được đặt đúng bằng IP của \texttt{eth0}. Đồng thời bổ sung các
+log chẩn đoán đọc trực tiếp thanh ghi chip (phiên bản chip, trạng thái liên kết
+PHY, tốc độ/song công thực) để phân biệt nhanh ba nhóm sự cố: hỏng SPI/chip, đứt
+liên kết vật lý, và sai địa chỉ đích (xem~\ref{section:4.1.2}).
+
+\subsection*{(iii) Kết quả}
+Socket tiến tới \texttt{ESTABLISHED} ổn định; các sự cố mạng được khoanh vùng
+nhanh nhờ log chẩn đoán có chủ đích thay vì thông báo chung chung. Đây là một bài
+học thực tiễn về việc \emph{địa chỉ đích phải khớp giao diện thật mang gói tin} —
+một cái bẫy phổ biến trong hệ thống nhiều giao diện mạng.
+
+\section{Toàn vẹn tín hiệu tương tự và chuẩn hoá thang đo đúng tầng}
+\label{section:5.6}
+
+\subsection*{(i) Vấn đề}
+Hai vấn đề liên quan đến chuỗi tín hiệu tương tự. Thứ nhất, khi đọc ba biến trở
+qua ADC ở chế độ quét, với thời gian lấy mẫu ngắn, tụ lấy-giữ của ADC không kịp
+nạp giữa các kênh khiến kênh sau "ăn" giá trị kênh trước (rò điện tích). Thứ hai,
+giá trị ADC 12-bit (0--4095) được truyền nguyên qua CAN/TCP, nhưng nếu phía hiển
+thị chia cho toàn thang 16-bit (65535) thì kim đồng hồ chỉ chạy được khoảng
+$1/16$ dải.
+
+\subsection*{(ii) Giải pháp}
+\begin{itemize}
+  \item Tăng thời gian lấy mẫu ADC lên mức tối đa
+    (\texttt{ADC\_SAMPLETIME\_239CYCLES\_5}) cho cả ba kênh, đủ để tụ lấy-giữ nạp
+    đầy giữa các kênh đối với nguồn biến trở trở kháng cao (xem~\ref{section:4.2.1}).
+  \item Sửa hệ số chuẩn hoá ở \emph{đúng tầng hiển thị} (Android), chia cho toàn
+    thang ADC 12-bit \texttt{ADC\_FULL\_SCALE = 4095}, không can thiệp vào dây/CAN.
+\end{itemize}
+
+\subsection*{(iii) Kết quả}
+Ba kênh ADC cho giá trị độc lập, ổn định; kim đồng hồ quét trọn dải biểu diễn
+(vận tốc tới 240~km/h). Quan trọng hơn, việc khắc phục được thực hiện \emph{đúng
+tầng trách nhiệm} (sửa thang đo ở tầng hiển thị thay vì sửa firmware), minh hoạ
+nguyên tắc phân lớp được giữ vững xuyên suốt hệ thống.
+
+\end{document}

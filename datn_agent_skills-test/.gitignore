@@ -1,0 +1,24 @@
+# Local environment variables
+.env
+.env.local
+
+# IDE and System files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Build and dependencies
+node_modules/
+build/
+dist/
+__pycache__/
+*.pyc
+
+# Agent artifacts
+.gemini/
+brain/
+walkthrough.md
+task.md
+implementation_plan.md
+api_key.txt

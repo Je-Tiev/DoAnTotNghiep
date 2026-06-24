@@ -1,0 +1,772 @@
+% =====================================================================
+%  CHƯƠNG 4 — PHÂN TÍCH THIẾT KẾ, TRIỂN KHAI VÀ ĐÁNH GIÁ HỆ THỐNG
+%  Bản nâng cấp: văn phong đặc tả kỹ thuật + bảng hoá + test cases.
+%  Mọi số liệu kỹ thuật trích từ datn_agent_skills-test/project_setup/architecture/*
+%  Các số liệu ĐO ĐẠC chưa có nguồn được đánh dấu  % TODO[cần đo]
+% =====================================================================
+\documentclass[../DoAn.tex]{subfiles}
+\begin{document}
+
+% Yêu cầu gói (đặt ở preamble DoAn.tex nếu chưa có):
+%   \usepackage{booktabs}  % \toprule \midrule \bottomrule
+%   \usepackage{array}     % cột p{} căn trên
+%   \usepackage{float}     % [H]
+%   \usepackage{longtable} % bảng test-case dài qua trang
+%   \usepackage{makecell}  % xuống dòng trong ô
+
+Chương này đặc tả quá trình phân tích, thiết kế kỹ thuật, triển khai và kiểm
+thử hệ thống mô phỏng mạng truyền thông trên ô tô. Nội dung được trình bày
+theo trình tự: (1) thiết kế kiến trúc — từ tổng thể đến phần cứng và phần mềm
+kèm các lập luận lựa chọn giải pháp; (2) thiết kế chi tiết từng nút và đặc tả
+giao thức truyền dữ liệu; (3) quy trình triển khai mã nguồn; và (4) các kịch
+bản kiểm thử ở cấp độ module nhằm xác minh tính toàn vẹn và độ tin cậy của
+toàn hệ thống.
+
+\section{Thiết kế kiến trúc hệ thống}
+\label{section:4.1}
+
+Hệ thống được tổ chức theo mô hình phân tầng chức năng gồm ba nút độc lập,
+mỗi nút giữ một trách nhiệm duy nhất và không chồng lấn: \textit{Nút cảm biến}
+(Sensor Node) là nguồn sự thật về trạng thái xe, \textit{Nút cổng kết nối}
+(Gateway Node) chỉ làm nhiệm vụ dịch giao thức, và \textit{Ứng dụng hiển thị}
+(Android Cluster Application) chạy trên máy tính nhúng Raspberry Pi~4 đảm nhận
+trực quan hoá. Việc tách bạch trách nhiệm này phản ánh đúng tô-pô ECU --
+gateway -- head-unit của một mạng ô tô thực và cho phép kiểm thử từng nút một
+cách độc lập.
+
+% >>> HÌNH 4.1 — Sơ đồ khối kiến trúc tổng thể 3 tầng (Sensor → Gateway → Pi/Android)
+% Nguồn: architecture/system_topology.md §1
+\begin{figure}[H]
+  \centering
+  % \includegraphics[width=0.95\textwidth]{fig/architecture_overview}
+  \caption{Sơ đồ khối kiến trúc tổng thể hệ thống ba tầng.}
+  \label{fig:arch-overview}
+\end{figure}
+
+\subsection{Kiến trúc tổng thể}
+\label{section:4.1.1}
+
+Luồng dữ liệu của hệ thống là một chuỗi biến đổi một chiều, được tóm tắt trong
+Bảng~\ref{tab:dataflow}. Nút cảm biến đọc đầu vào vật lý, sở hữu cấu trúc trạng
+thái và phát hai khung CAN tiêu chuẩn (mã định danh \texttt{0x100} và
+\texttt{0x200}). Nút cổng kết nối nhận khung CAN, tái dựng cấu trúc
+\texttt{VehicleState\_t} 18~byte và chuyển tiếp nguyên khối qua TCP. Ứng dụng
+Android, đóng vai trò máy chủ TCP, đọc đúng 18~byte mỗi gói, phân giải và vẽ
+cụm đồng hồ số.
+
+\begin{table}[H]
+  \centering
+  \caption{Luồng dữ liệu đầu cuối và ranh giới trách nhiệm (nguồn: integration.md).}
+  \label{tab:dataflow}
+  \begin{tabular}{@{}p{2.6cm}p{4.2cm}p{4.6cm}@{}}
+    \toprule
+    \textbf{Tầng} & \textbf{Trách nhiệm} & \textbf{Đầu ra / giao diện} \\
+    \midrule
+    Nút cảm biến (STM32-1st) & Đọc keypad + 3 biến trở (ADC), sở hữu
+      \texttt{ControlData\_t}/\texttt{SensorData\_t} & CAN \texttt{0x100} (4\,B) +
+      \texttt{0x200} (8\,B), 250\,kbps \\
+    Nút cổng kết nối (STM32-2nd) & Kiểm tra + giải mã CAN, tích luỹ
+      \texttt{VehicleState\_t}; \emph{không} chứa logic xe & TCP client gửi
+      18\,byte thô tới \texttt{192.168.10.104:5000} \\
+    Raspberry Pi 4 & Máy chủ chạy ứng dụng Android (host) & Cung cấp điểm cuối
+      mạng \texttt{eth0} \\
+    Ứng dụng Android & Phân giải gói, suy diễn cảnh báo hiển thị, vẽ giao diện &
+      Cụm đồng hồ số $\sim$30\,FPS \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsubsection*{Lập luận lựa chọn kiến trúc}
+
+\paragraph{Vì sao tách ba tầng độc lập.}
+Mô hình một nút ghi -- nhiều nút đọc loại bỏ xung đột hợp nhất trạng thái: chỉ
+Nút cảm biến được phép tạo ra giá trị, các nút phía sau là bộ chuyển tiếp/hiển
+thị không trạng thái. Nhờ đó mỗi nút có thể được phát triển, nạp và kiểm thử
+riêng rẽ, đồng thời tái hiện trung thực phân cấp ECU/gateway/head-unit của xe
+thực -- vốn là mục tiêu của đề tài.
+
+\paragraph{Vì sao dùng Gateway chuyển CAN sang Ethernet thay vì Wi-Fi.}
+Liên kết giữa Nút cổng kết nối và máy tính nhúng được hiện thực bằng Ethernet
+có dây điểm-điểm qua bộ điều khiển phần cứng W5500, thay vì Wi-Fi, dựa trên ba
+luận điểm:
+\begin{itemize}
+  \item \textbf{Độ trễ tất định.} Đường truyền có dây loại bỏ tranh chấp môi
+    trường vô tuyến, nhiễu RF và độ trễ dao động (jitter) -- yếu tố quyết định
+    với một cụm đồng hồ thời gian thực.
+  \item \textbf{Giải phóng tài nguyên vi điều khiển.} W5500 tích hợp sẵn ngăn
+    xếp TCP/IP cứng; vi điều khiển chỉ thao tác qua API \texttt{socket / connect
+    / send} mà không phải nhúng một ngăn xếp phần mềm (lwIP), tiết kiệm Flash/RAM
+    vốn rất hạn chế trên STM32F103C8.
+  \item \textbf{Độ tin cậy có sẵn.} TCP bảo đảm thứ tự và toàn vẹn gói tin nên
+    không cần thêm cơ chế truyền lại ở lớp ứng dụng; trong khi Wi-Fi còn kéo theo
+    chi phí kết hợp (association), bảo mật và chuyển vùng không cần thiết cho một
+    liên kết cố định.
+\end{itemize}
+
+\paragraph{Vì sao dùng FreeRTOS để quản lý đa nhiệm.}
+Trên cả hai nút STM32, hệ điều hành thời gian thực FreeRTOS (CMSIS-RTOS~v2) cho
+phép phân tách các hoạt động có ràng buộc thời gian khác nhau thành các tác vụ
+độc lập theo độ ưu tiên có quyền chiếm dụng (preemptive). Cơ chế hàng đợi
+(queue) tách phần sinh dữ liệu khỏi phần truyền: ở Nút cảm biến, các tác vụ đọc
+phím và đọc ADC chỉ nạp thông điệp vào một hàng đợi chung, còn một tác vụ duy
+nhất chịu trách nhiệm truyền CAN -- nhờ đó tuần tự hoá truy cập bus và tránh
+gọi đồng thời \texttt{HAL\_CAN\_AddTxMessage}. Ở Nút cổng kết nối, ngắt nhận
+CAN chỉ đẩy khung vào hàng đợi an toàn-ngắt rồi trả quyền điều khiển ngay, để
+tác vụ nền thực hiện phần xử lý nặng hơn -- đảm bảo độ phản hồi của ISR.
+
+\subsection{Kiến trúc phần cứng}
+\label{section:4.1.2}
+
+Cả hai nút nhúng dùng chung vi điều khiển 32-bit STM32F103C8Tx (lõi ARM
+Cortex-M3, tối đa 72\,MHz) tích hợp ngoại vi bxCAN. Bảng~\ref{tab:hw} liệt kê
+cấu hình phần cứng đặc thù của từng nút.
+
+\begin{table}[H]
+  \centering
+  \caption{Cấu hình phần cứng theo từng nút (nguồn: sensor\_ecu.md, gateway\_ecu.md, system\_topology.md).}
+  \label{tab:hw}
+  \begin{tabular}{@{}p{2.6cm}p{5.0cm}p{4.0cm}@{}}
+    \toprule
+    \textbf{Nút} & \textbf{Thành phần} & \textbf{Kết nối / tham số} \\
+    \midrule
+    \multirow Nút cảm biến
+      & MCU STM32F103C8Tx & --- \\
+      & Bộ thu phát CAN MCP2551 & CAN1: PA11 (RX) / PA12 (TX) \\
+      & Ma trận phím 4$\times$3 & GPIO quét cột--hàng \\
+      & 3 biến trở (chiết áp) & ADC1 IN0/IN1/IN2 qua DMA \\
+      & 8 LED trạng thái & 74HC595 (dịch chốt) qua SPI \\
+      & Gỡ lỗi & USART1 @ 115200 8N1 \\
+    \midrule
+    Nút cổng kết nối
+      & MCU STM32F103C8Tx & --- \\
+      & Bộ thu phát CAN MCP2551 & CAN1: PA11 (RX) / PA12 (TX) \\
+      & Module Ethernet W5500 & SPI1, chip-select PB12 \\
+      & Gỡ lỗi & USART1: PA9 (TX) / PA10 (RX) @ 115200 \\
+    \midrule
+    Head-unit
+      & Raspberry Pi 4 + màn hình cảm ứng & Ethernet \texttt{eth0} nối thẳng W5500 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Bộ ngoại vi CAN hoạt động ở mức logic TTL nên cần bộ thu phát MCP2551 chuyển
+sang tín hiệu vi sai vật lý; hai điện trở đầu cuối 120\,$\Omega$ đặt tại hai đầu
+mút bus để triệt phản xạ. Module W5500 kết nối qua SPI1 (chip-select PB12) và
+tích hợp ngăn xếp TCP/IP cứng. Cổng \texttt{eth0} của Raspberry Pi~4 nối trực
+tiếp tới W5500 bằng cáp mạng trên một mạng con riêng \texttt{192.168.10.0/24},
+tách khỏi mạng Wi-Fi để tránh nhập nhằng định tuyến.
+
+\medskip
+\noindent\textbf{Ghi chú đính chính so với bản nháp:} bộ thu phát CAN là
+\textbf{MCP2551} (không phải TJA1050) và các giá trị tốc độ/định thời CAN ở
+\S\ref{section:4.3.1} dùng \textbf{250\,kbps} đúng theo cấu hình mã nguồn.
+
+% TODO[cần đo]: tốc độ xung SPI thực tế của W5500 (bản nháp ghi 24 MHz nhưng
+% chưa có trong tài liệu kiến trúc — xác nhận lại từ cấu hình hspi1).
+
+\subsection{Kiến trúc phần mềm}
+\label{section:4.1.3}
+
+Phần mềm nhúng trên cả hai nút được tổ chức theo mô hình đa tác vụ FreeRTOS với
+các hàng đợi và bộ định thời (timer) làm cơ chế đồng bộ. Hình~\ref{fig:rtos-task}
+nên minh hoạ sơ đồ các tác vụ và hàng đợi của hai nút.
+
+% >>> HÌNH 4.2 — Sơ đồ các Task/Queue trong FreeRTOS (Sensor + Gateway)
+% Nguồn: sensor_ecu.md §2, gateway_ecu.md §2
+\begin{figure}[H]
+  \centering
+  % \includegraphics[width=0.95\textwidth]{fig/rtos_tasks}
+  \caption{Sơ đồ tác vụ và hàng đợi FreeRTOS trên Nút cảm biến và Nút cổng kết nối.}
+  \label{fig:rtos-task}
+\end{figure}
+
+\section{Thiết kế chi tiết hệ thống}
+\label{section:4.2}
+
+\subsection{Thiết kế Nút cảm biến}
+\label{section:4.2.1}
+
+Nút cảm biến mô phỏng khối điều khiển khoang lái, thu thập hành vi người dùng và
+duy trì trạng thái động học của xe. Phần mềm gồm bốn tác vụ FreeRTOS như
+Bảng~\ref{tab:sensor-tasks}.
+
+\begin{table}[H]
+  \centering
+  \caption{Các tác vụ FreeRTOS của Nút cảm biến (nguồn: sensor\_ecu.md §2).}
+  \label{tab:sensor-tasks}
+  \begin{tabular}{@{}p{3.0cm}p{2.0cm}p{2.4cm}p{4.4cm}@{}}
+    \toprule
+    \textbf{Tác vụ} & \textbf{Ưu tiên} & \textbf{Chu kỳ} & \textbf{Trách nhiệm} \\
+    \midrule
+    \texttt{buttonTask} & Low & $\sim$20\,ms & Quét keypad, khử rung, cập nhật
+      \texttt{g\_ctrl\_data}, điều khiển LED, mã hoá \texttt{0x100} khi có phím \\
+    \texttt{ADCTask} & BelowNormal & 100\,ms (10\,Hz) & Chép
+      \texttt{adcBuffer[0..2]} $\to$ \texttt{g\_sensor\_data}, mã hoá
+      \texttt{0x200}, đẩy hàng đợi \\
+    \texttt{CANTask} & High & theo sự kiện & Lấy thông điệp khỏi hàng đợi, gọi
+      \texttt{CAN\_Send} (\texttt{HAL\_CAN\_AddTxMessage}) \\
+    \texttt{defaultTask} & Normal & theo sự kiện & Bộ phân tích lệnh UART
+      (\texttt{PING}/\texttt{GET\_STATUS}/\dots) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Hàng đợi chung \texttt{sensorQueue} (16 phần tử \texttt{CAN\_Message\_t}) nhận
+thông điệp từ hai nguồn (\texttt{ADCTask} phát \texttt{0x200},
+\texttt{buttonTask} phát \texttt{0x100}) và được tiêu thụ bởi một mình
+\texttt{CANTask}, qua đó tuần tự hoá toàn bộ truyền CAN.
+
+\medskip
+\noindent\textbf{Phân định nguồn tín hiệu (đính chính bản nháp):} ba đại lượng
+tương tự -- vận tốc, mức nhiên liệu và vòng tua máy -- được lấy từ \textbf{ba
+biến trở qua ADC/DMA} (\texttt{adcBuffer[0]=speed}, \texttt{[1]=fuel},
+\texttt{[2]=rpm}), \emph{không} suy ra từ thời gian giữ phím. Ma trận phím chỉ
+\emph{bật/tắt} (toggle) các trường điều khiển: đèn xi-nhan, đèn pha/cốt, hộp số,
+chế độ lái, cửa, dây an toàn, sấy kính, v.v. (Bảng~\ref{tab:keypad}).
+
+\begin{table}[H]
+  \centering
+  \caption{Ánh xạ phím $\to$ hành động trên Nút cảm biến (nguồn: sensor\_ecu.md §3).}
+  \label{tab:keypad}
+  \begin{tabular}{@{}cll@{}}
+    \toprule
+    \textbf{Phím} & \textbf{Hành động} & \textbf{Khoá liên động} \\
+    \midrule
+    1 & turnL & xoá turnR, hazard \\
+    2 & hazard & xoá turnL, turnR \\
+    3 & turnR & xoá turnL, hazard \\
+    4 & highBeam & xoá lowBeam \\
+    5 & gear (P$\to$R$\to$N$\to$D) & --- \\
+    6 & lowBeam & xoá highBeam \\
+    7 & seatbelt & --- \\
+    8 & mode (lặp vòng) & --- \\
+    9 & door & --- \\
+    * & heat & --- \\
+    0 & steer & --- \\
+    \# & wind & --- \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Để khử rung tiếp điểm cơ khí, một phím chỉ được ghi nhận khi trạng thái đồng
+nhất qua hai chu kỳ quét liên tiếp. Các kênh ADC dùng thời gian lấy mẫu
+\texttt{ADC\_SAMPLETIME\_239CYCLES\_5} ($\approx$21\,$\mu$s/kênh @ 12\,MHz) nhằm
+tránh hiện tượng rò điện tích giữa các kênh khi nguồn biến trở có trở kháng cao.
+
+\subsection{Thiết kế Nút cổng kết nối}
+\label{section:4.2.2}
+
+Nút cổng kết nối là cầu nối định tuyến dữ liệu bất đối xứng giữa mạng CAN hướng
+gói tin và mạng Ethernet/TCP hướng dòng byte. Lõi xử lý dựa trên hàng đợi
+\texttt{canToEthQueue} (16 phần tử) làm bộ đệm chống lệch pha tốc độ:
+
+\begin{enumerate}
+  \item Khung CAN hợp lệ vượt bộ lọc phần cứng $\to$ ngắt \texttt{USB\_LP\_CAN1\_RX0\_IRQn}
+    (NVIC ưu tiên 5) đẩy khung vào \texttt{canToEthQueue} rồi trả quyền điều khiển ngay.
+  \item \texttt{Eth\_SendTask} lấy khung khỏi hàng đợi, gọi
+    \texttt{CAN\_ValidateFrame} (ID\,$\le$\,0x7FF, DLC\,$\le$\,8).
+  \item \texttt{decodeCAN} kiểm CRC8, giải bit cho \texttt{0x100} hoặc giải
+    big-endian cho \texttt{0x200}, theo dõi số thứ tự (sequence) để phát hiện
+    mất/trùng khung.
+  \item Tích luỹ lai: một \texttt{VehicleState\_t} bền vững giữ \emph{control mới
+    nhất} và \emph{sensor mới nhất}; mỗi khung hợp lệ kích hoạt gửi nguyên ảnh
+    chụp 18~byte.
+\end{enumerate}
+
+Máy trạng thái socket TCP-client (không chặn, \texttt{SF\_IO\_NONBLOCK}) trên
+socket~0 vận hành theo Bảng~\ref{tab:sock-fsm}. Chế độ không chặn bảo đảm
+\texttt{connect()} không khoá \texttt{Eth\_SendTask}, nhờ đó hàng đợi không tràn
+khi ứng dụng chưa sẵn sàng.
+
+\begin{table}[H]
+  \centering
+  \caption{Máy trạng thái socket của Nút cổng kết nối (nguồn: gateway\_ecu.md §4).}
+  \label{tab:sock-fsm}
+  \begin{tabular}{@{}lll@{}}
+    \toprule
+    \textbf{Trạng thái (\texttt{getSn\_SR})} & \textbf{Hành động} & \textbf{Trả về} \\
+    \midrule
+    \texttt{SOCK\_ESTABLISHED} & sẵn sàng gửi & 1 \\
+    \texttt{SOCK\_CLOSED} & \texttt{socket(0,TCP,port++,SF\_IO\_NONBLOCK)} & 0 \\
+    \texttt{SOCK\_INIT} & \texttt{connect(0, APP\_IP, APP\_PORT)} & 0 \\
+    \texttt{SOCK\_SYNSENT} & chờ bắt tay, không gọi lại \texttt{connect} & 0 \\
+    \texttt{SOCK\_CLOSE\_WAIT} & \texttt{disconnect(0)} & 0 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+% >>> HÌNH 4.3 — Lưu đồ pipeline RX→decode→accumulate→TCP của Gateway
+% Nguồn: gateway_ecu.md §3
+\begin{figure}[H]
+  \centering
+  % \includegraphics[width=0.85\textwidth]{fig/gateway_pipeline}
+  \caption{Lưu đồ xử lý của Nút cổng kết nối: nhận CAN, giải mã, tích luỹ và gửi TCP.}
+  \label{fig:gw-pipeline}
+\end{figure}
+
+\subsection{Thiết kế ứng dụng Android}
+\label{section:4.2.3}
+
+Ứng dụng đóng vai trò cụm đồng hồ số và \emph{máy chủ} TCP. Khác với bản nháp,
+ứng dụng là phía \textbf{server} (\texttt{ServerSocket} trên
+\texttt{0.0.0.0:5000}), còn W5500 của Nút cổng kết nối là phía \textbf{client}
+chủ động kết nối ra; head-unit là điểm lắng nghe ổn định, thiết bị nhúng tự kết
+nối lại mỗi 2\,giây.
+
+\texttt{GatewayClient} là singleton phạm vi tiến trình; vòng đời máy chủ thuộc
+\texttt{SocketService} (foreground service, \texttt{START\_STICKY}) để cổng 5000
+chỉ bind một lần và sống sót khi hệ điều hành thu hồi tiến trình. Luồng nhận
+\texttt{readFully(18)} gom đúng một gói 18~byte (xử lý phân mảnh dòng TCP) rồi
+gọi \texttt{applyGatewayPacket}. Sau khi phân giải, mô hình \texttt{VehicleState}
+(POJO) được đồng bộ sang luồng giao diện và vẽ bằng \texttt{GaugeView}.
+
+Ngoài các trường nhận từ dây, ứng dụng tự \emph{suy diễn} một số cảnh báo hiển
+thị (Bảng~\ref{tab:derived}); các cảnh báo này không do firmware gửi, nhằm giữ
+tải tin tối thiểu và cho phép tinh chỉnh ngưỡng ở tầng giao diện.
+
+\begin{table}[H]
+  \centering
+  \caption{Cảnh báo suy diễn tại ứng dụng (nguồn: android\_app.md §3).}
+  \label{tab:derived}
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    \textbf{Cảnh báo} & \textbf{Quy tắc} \\
+    \midrule
+    \texttt{engineCheckOn} & rpm $>$ 6500 \\
+    \texttt{breakOn} & giảm tốc $>$ 12 km/h mỗi giây giữa hai gói \\
+    \texttt{oilPressureOn} & rpm $<$ 500 \emph{và} speed $>$ 5 \\
+    \texttt{temperatureOn} & mô hình nhiệt ảo vượt ngưỡng 0.85 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Thiết kế giao thức truyền dữ liệu}
+\label{section:4.2.4}
+
+Hệ thống định nghĩa hai tầng giao thức tách biệt: tầng CAN (giữa Nút cảm biến và
+Nút cổng kết nối) và tầng TCP/Ethernet (giữa Nút cổng kết nối và ứng dụng).
+
+\subsubsection{Tầng CAN}
+
+Tầng CAN dùng khung chuẩn 11-bit, 250\,kbps. Cấu trúc định danh phản ánh độ ưu
+tiên: khung động học \texttt{0x200} (cao) truyền định kỳ 10\,Hz, khung điều
+khiển \texttt{0x100} truyền theo sự kiện khi có phím. Mỗi khung mang một
+\textbf{CRC8} (đa thức 0x07, MSB-first, init 0x00) và một bộ đếm \textbf{số thứ
+tự 4-bit} để phát hiện hỏng/mất/trùng khung ở lớp ứng dụng.
+Bảng~\ref{tab:can-0x100} và Bảng~\ref{tab:can-0x200} đặc tả bố cục byte.
+
+\begin{table}[H]
+  \centering
+  \caption{Khung \texttt{0x100} -- CONTROL, DLC 4 (nguồn: can\_database.md).}
+  \label{tab:can-0x100}
+  \begin{tabular}{@{}ccl@{}}
+    \toprule
+    \textbf{Byte} & \textbf{Bit} & \textbf{Trường} \\
+    \midrule
+    0 & 0--7 & turnL, turnR, hazard, highBeam, lowBeam, door, seatbelt, heat \\
+    1 & 0--1 & gear (0=P,1=R,2=N,3=D) \\
+    1 & 2--3 & mode (0=ECO,1=SPORT,2=COMFORT,3=NORMAL) \\
+    1 & 4--5 & steer, wind \\
+    2 & 0--3 & sequence (nibble thấp) \\
+    3 & --- & CRC8 trên byte 0--2 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[H]
+  \centering
+  \caption{Khung \texttt{0x200} -- SENSOR, DLC 8, giá trị 16-bit big-endian (nguồn: can\_database.md).}
+  \label{tab:can-0x200}
+  \begin{tabular}{@{}cl@{}}
+    \toprule
+    \textbf{Byte} & \textbf{Trường} \\
+    \midrule
+    0--1 & speed (MSB, LSB) \\
+    2--3 & fuel (MSB, LSB) \\
+    4--5 & rpm (MSB, LSB) \\
+    6 & sequence (nibble cao) \\
+    7 & CRC8 trên byte 0--6 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsubsection{Tầng TCP/Ethernet}
+
+Tải tin Ethernet là một cấu trúc \texttt{VehicleState\_t} cố định 18~byte. Nút
+cổng kết nối \texttt{memcpy} nguyên cấu trúc này vào bộ đệm rồi gọi
+\texttt{send()}; phía Android dùng \texttt{readFully(18)} để gom đúng một gói.
+Do TCP đã bảo đảm thứ tự và toàn vẹn của dòng byte, hệ thống không bổ sung byte
+đồng bộ, mã loại thông điệp hay byte kiểm tra ở lớp ứng dụng; toàn vẹn được giao
+phó cho TCP. Kích thước cố định cho phép phân giải bằng cơ chế length-framing
+theo độ dài định trước. Bố cục 18~byte little-endian được đặc tả trong
+Bảng~\ref{tab:tcp-packet}.
+
+\begin{table}[H]
+  \centering
+  \caption{Cấu trúc gói TCP 18 byte (\texttt{VehicleState\_t}, little-endian) -- nguồn: vehicle\_state.md §2.}
+  \label{tab:tcp-packet}
+  \begin{tabular}{@{}cllp{5.2cm}@{}}
+    \toprule
+    \textbf{Byte} & \textbf{Trường} & \textbf{Kiểu} & \textbf{Ý nghĩa / biến đổi tại Android} \\
+    \midrule
+    0  & turnL    & uint8 & đèn xi-nhan trái ($\ne 0$) \\
+    1  & turnR    & uint8 & đèn xi-nhan phải ($\ne 0$) \\
+    2  & hazard   & uint8 & đèn khẩn cấp \\
+    3  & highBeam & uint8 & đèn pha \\
+    4  & lowBeam  & uint8 & đèn cốt \\
+    5  & door     & uint8 & cảnh báo cửa mở \\
+    6  & seatbelt & uint8 & cảnh báo dây an toàn \\
+    7  & gear     & uint8 & số (P/R/N/D) \\
+    8  & mode     & uint8 & chế độ lái (ECO/SPORT/COMFORT/NORMAL) \\
+    9  & heat     & uint8 & sấy kính (defrost) \\
+    10 & steer    & uint8 & sấy vô-lăng \\
+    11 & wind     & uint8 & sấy kính sau \\
+    12--13 & speed & uint16 LE & vận tốc thô; Android: $\dfrac{\text{giá trị}}{4095}\times240$ km/h \\
+    14--15 & fuel  & uint16 LE & nhiên liệu thô; Android: $\dfrac{\text{giá trị}}{4095}$ (0--1) \\
+    16--17 & rpm   & uint16 LE & vòng tua thô; Android: $\dfrac{\text{giá trị}}{4095}\times8000$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\noindent\textbf{Lưu ý endianness:} khung CAN \texttt{0x200} mang speed/fuel/rpm
+\emph{big-endian}; Nút cổng kết nối tái dựng về \texttt{uint16} bản địa
+($\texttt{data[0]}\ll8 \mid \texttt{data[1]}$); \texttt{memcpy} cấu trúc phát ra
+\emph{little-endian} (bản địa Cortex-M3) và Android cũng đọc little-endian. Giá
+trị được bảo toàn đầu cuối; đây là một \emph{cặp} biến đổi khớp nhau, không được
+sửa lệch một phía.
+
+\subsubsection*{Hệ số chuẩn hoá thang đo}
+
+Cảm biến gửi \emph{thẳng} giá trị ADC 12-bit (0--4095), không phóng lên 16-bit;
+do đó ứng dụng chia cho toàn thang \textbf{4095} (hằng số
+\texttt{ClusterController.ADC\_FULL\_SCALE}). Vận tốc cực đại biểu diễn được do
+đó là 240\,km/h.
+
+\section{Triển khai hệ thống}
+\label{section:4.3}
+
+\subsection{Triển khai Nút cảm biến}
+\label{section:4.3.1}
+
+Mã nguồn được cấu hình bằng STM32CubeMX và biên dịch bằng STM32CubeIDE trên nền
+thư viện HAL. Nhân FreeRTOS được khởi tạo, cấp phát bộ nhớ theo mô hình tĩnh kết
+hợp động. Bộ ngoại vi bxCAN được cấu hình để đạt tốc độ \textbf{250\,kbps}: với
+bus ngoại vi APB1 ở 36\,MHz, đặt \textbf{bộ chia (prescaler) = 9}, phân đoạn
+\textbf{BS1 = 13\,TQ}, \textbf{BS2 = 2\,TQ}, \textbf{SJW = 1\,TQ}, tổng
+\textbf{16\,TQ/bit} $\Rightarrow$ 4\,$\mu$s/bit = 250\,kbps. Việc truyền được
+thực hiện bằng cách điền cấu trúc tiêu đề truyền, chọn mailbox trống và gọi
+\texttt{HAL\_CAN\_AddTxMessage}. Cả hai nút bật \texttt{AutoBusOff} và
+\texttt{AutoRetransmission} để tự phục hồi trên liên kết telemetry hai nút.
+
+\medskip
+\noindent\textbf{Đính chính bản nháp:} thông số định thời CAN là
+prescaler~9 / BS1~13 / BS2~2 (16~TQ, 250\,kbps), thay cho prescaler~4 / BS1~13 /
+BS2~4 (18~TQ, 500\,kbps) trong bản nháp.
+
+\subsection{Triển khai Nút cổng kết nối}
+\label{section:4.3.2}
+
+Triển khai tập trung vào cấu hình bộ lọc CAN và lớp vật lý cho W5500. Bộ lọc CAN
+được đặt ở chế độ danh sách định danh, chỉ cho các khung \texttt{0x100}/\texttt{0x200}
+đi vào FIFO nhằm giảm tần suất ngắt. W5500 được khởi tạo với các callback SPI
+(đọc/ghi byte, chọn chip PB12) và cấu hình IP tĩnh
+(\texttt{192.168.10.50}, gateway \texttt{192.168.10.1}, mask
+\texttt{255.255.255.0}, \texttt{NETINFO\_STATIC}). Socket được mở ở chế độ TCP
+client không chặn, \texttt{connect} tới \texttt{192.168.10.104:5000}
+(\texttt{eth0} của Pi); sau 5 lần gửi lỗi liên tiếp, socket được đóng để mở lại
+sạch sẽ.
+
+\medskip
+\noindent\textbf{Lưu ý thứ tự khởi tạo:} \texttt{HAL\_CAN\_Start} và
+\texttt{HAL\_CAN\_ActivateNotification} được gọi ở đầu \texttt{Eth\_SendTask}
+(sau khi hàng đợi đã tạo và scheduler chạy), không gọi trong \texttt{main()}
+trước scheduler, nhằm tránh ngắt RX đẩy vào hàng đợi NULL gây treo
+\texttt{configASSERT}.
+
+\subsection{Triển khai ứng dụng Android}
+\label{section:4.3.3}
+
+Ứng dụng được viết bằng Java (Android SDK min~24 / target~36, Gradle). Một dịch
+vụ nền (\texttt{SocketService}, foreground, \texttt{START\_STICKY}) duy trì máy
+chủ TCP; luồng nhận \texttt{TCP\_Recv\_Thread} chạy ở \texttt{MAX\_PRIORITY},
+dùng \texttt{DataInputStream.readFully} với bộ đệm cố định để tránh cấp phát lặp
+gây kích hoạt bộ dọn rác. \texttt{BootReceiver} tự khởi động khi máy bật,
+\texttt{WatchdogReceiver} hồi sinh dịch vụ chết. Dữ liệu phân giải xong được
+chuyển an toàn sang luồng giao diện và kích hoạt vẽ lại \texttt{GaugeView}.
+
+\subsection{Thư viện và công cụ sử dụng}
+\label{section:4.3.4}
+
+Bảng~\ref{tab:tools} tổng hợp công cụ và thư viện sử dụng trong toàn dự án.
+
+\begin{table}[H]
+  \centering
+  \caption{Công cụ và thư viện sử dụng (nguồn: overview.md §3, các doc kiến trúc).}
+  \label{tab:tools}
+  \begin{tabular}{@{}p{3.6cm}p{2.6cm}p{6.0cm}@{}}
+    \toprule
+    \textbf{Công cụ / thư viện} & \textbf{Phạm vi} & \textbf{Vai trò} \\
+    \midrule
+    STM32CubeMX & 2 nút STM32 & Cấu hình đồ hoạ ngoại vi, sinh mã khởi tạo HAL \\
+    STM32CubeIDE (GCC ARM) & 2 nút STM32 & Biên dịch, nạp và gỡ lỗi qua ST-Link \\
+    STM32 HAL & 2 nút STM32 & Lớp trừu tượng hoá phần cứng (GPIO/SPI/ADC/CAN/UART) \\
+    FreeRTOS (CMSIS-RTOS v2) & 2 nút STM32 & Đa nhiệm, hàng đợi, timer, mutex \\
+    WIZnet ioLibrary & Gateway & Driver W5500, API socket TCP/IP cứng \\
+    Android Studio + Gradle & ClusterApp & Phát triển, build APK \\
+    Android SDK (Java) & ClusterApp & Dịch vụ nền, socket, giao diện \texttt{Canvas} \\
+    Wireshark & Kiểm thử & Bắt và phân tích gói TCP trên LAN \\
+    Máy hiện sóng / phân tích logic & Kiểm thử & Đo tín hiệu vi sai CAN, giải mã khung \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\section{Kiểm thử trong quá trình phát triển}
+\label{section:4.4}
+
+Công tác kiểm thử được tổ chức theo chiến lược \textit{kiểm thử từ dưới lên}
+(bottom-up): trước hết xác minh từng tầng truyền thông một cách độc lập (CAN,
+rồi Gateway CAN--Ethernet, rồi ứng dụng hiển thị), sau cùng kiểm thử tích hợp
+toàn tuyến đầu cuối. Mỗi hạng mục được mô tả dưới dạng kịch bản kiểm thử (test
+case) có mã định danh, điều kiện tiên quyết, các bước thực hiện và kết quả mong
+đợi nhằm bảo đảm khả năng tái lập. Các giá trị đo thực nghiệm chưa chốt được
+đánh dấu để tác giả điền sau khi đo.
+
+\subsubsection*{Môi trường và công cụ kiểm thử}
+
+Bảng~\ref{tab:test-env} liệt kê cấu hình môi trường dùng cho toàn bộ các kịch
+bản kiểm thử trong mục này.
+
+\begin{table}[H]
+  \centering
+  \caption{Môi trường và công cụ kiểm thử.}
+  \label{tab:test-env}
+  \begin{tabular}{@{}p{3.4cm}p{8.6cm}@{}}
+    \toprule
+    \textbf{Hạng mục} & \textbf{Cấu hình} \\
+    \midrule
+    Thiết bị thử & Nút cảm biến, Nút cổng kết nối (STM32F103C8), Raspberry Pi 4 + màn hình cảm ứng \\
+    Mạng CAN & Bus 250\,kbps, MCP2551, 2 điện trở đầu cuối 120\,$\Omega$ \\
+    Mạng Ethernet & W5500 nối thẳng \texttt{eth0} của Pi, subnet \texttt{192.168.10.0/24} \\
+    Đo tín hiệu CAN & Máy hiện sóng số + bộ phân tích logic có giải mã CAN \\
+    Phân tích gói TCP & Wireshark trên máy tính cùng LAN \\
+    Quan sát phía nhúng & UART gỡ lỗi (115200 8N1): nhãn \texttt{[CAN RX]}, \texttt{[DIAG]}, \texttt{[ETH]} \\
+    Quan sát phía Android & \texttt{DebugActivity} (tốc độ gói, bộ đếm lỗi), \texttt{adb logcat} \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Kiểm thử truyền thông CAN}
+\label{section:4.4.1}
+
+\textbf{Mục tiêu.} Xác minh tính toàn vẹn của tín hiệu điện vật lý trên bus và
+tính chính xác của cấu trúc khung \texttt{0x100}/\texttt{0x200}, bao gồm cơ chế
+kiểm lỗi CRC8 và theo dõi số thứ tự ở lớp ứng dụng. \textbf{Phương pháp.} Dùng
+máy hiện sóng quan sát mức vi sai CANH/CANL, bộ phân tích logic giải mã khung,
+và UART của Gateway đọc bộ chẩn đoán \texttt{canDecodeDiag}. Các kịch bản chi
+tiết trong Bảng~\ref{tab:tc-can}.
+
+\begin{table}[H]
+  \centering
+  \caption{Kịch bản kiểm thử tầng CAN.}
+  \label{tab:tc-can}
+  \begin{tabular}{@{}p{1.7cm}p{2.6cm}p{4.2cm}p{4.2cm}@{}}
+    \toprule
+    \textbf{ID} & \textbf{Điều kiện tiên quyết} & \textbf{Các bước} & \textbf{Kết quả mong đợi} \\
+    \midrule
+    TC\_CAN\_01 & Hai nút cấp nguồn, bus có 2 điện trở 120\,$\Omega$; nối hiện
+      sóng vào CANH/CANL & 1. Cho Nút cảm biến phát khung. 2. Quan sát mức điện
+      áp vi sai. & Trạng thái lặn: CANH$\approx$CANL$\approx$2.5\,V (vi sai
+      $\approx$0\,V). Trạng thái trội: CANH$\approx$3.5\,V, CANL$\approx$1.5\,V
+      (vi sai $\approx$2.0\,V). \\
+    TC\_CAN\_02 & Bộ phân tích logic + phần mềm giải mã CAN nối song song bus &
+      1. Phát \texttt{0x200} định kỳ. 2. Giải mã khung. & Bit time đúng 4\,$\mu$s
+      (250\,kbps); ID, DLC, byte tải khớp dữ liệu nguồn. % TODO[cần đo]: sai số bit-timing thực
+      \\
+    TC\_CAN\_03 & Kết nối UART gỡ lỗi của Gateway & 1. Phát liên tục
+      \texttt{0x100}/\texttt{0x200}. 2. Đọc \texttt{[DIAG]}. & CRC8 khớp,
+      \texttt{crc\_error}=0, không \texttt{seq\_gap}/\texttt{seq\_duplicate}. \\
+    TC\_CAN\_04 & Như TC\_CAN\_03 & 1. Rút/chập một nhánh bus gây lỗi khung. &
+      Khung lỗi bị loại; \texttt{crc\_error} hoặc \texttt{seq\_gap} tăng; bus tự
+      phục hồi (AutoBusOff). \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\textbf{Nhận xét.} Mức vi sai $\approx$2.0\,V ở trạng thái trội và $\approx$0\,V
+ở trạng thái lặn (TC\_CAN\_01) phù hợp với chuẩn CAN ô tô. Bộ đếm
+\texttt{crc\_error}/\texttt{seq\_gap}/\texttt{seq\_duplicate} bằng 0 trong điều
+kiện bình thường (TC\_CAN\_03) cho thấy đường truyền và thuật toán mã hoá/giải
+mã hoạt động ổn định; khi chủ động gây lỗi (TC\_CAN\_04), khung hỏng bị loại và
+bus tự phục hồi nhờ \texttt{AutoBusOff}.
+% TODO[cần đo]: chèn ảnh chụp dạng sóng oscilloscope + ảnh giải mã từ logic analyzer.
+
+\subsection{Kiểm thử Gateway CAN--Ethernet}
+\label{section:4.4.2}
+
+\textbf{Mục tiêu.} Xác minh năng lực dịch giao thức thời gian thực của Nút cổng
+kết nối và khả năng chịu tải của hàng đợi phần mềm khi lưu lượng CAN tăng cao,
+đồng thời kiểm tra cơ chế tự kết nối lại của máy trạng thái socket.
+\textbf{Phương pháp.} Dùng Wireshark bắt gói TCP do W5500 phát, đối chiếu tải
+tin 18~byte với dữ liệu nguồn; tạo kịch bản tải cao bằng cách hạ chu kỳ phát CAN;
+và quan sát log \texttt{[ETH]} trên UART để theo dõi chuyển trạng thái socket.
+Các kịch bản chi tiết trong Bảng~\ref{tab:tc-eth}.
+
+\begin{table}[H]
+  \centering
+  \caption{Kịch bản kiểm thử Nút cổng kết nối (CAN $\to$ TCP).}
+  \label{tab:tc-eth}
+  \begin{tabular}{@{}p{1.7cm}p{2.6cm}p{4.2cm}p{4.2cm}@{}}
+    \toprule
+    \textbf{ID} & \textbf{Điều kiện tiên quyết} & \textbf{Các bước} & \textbf{Kết quả mong đợi} \\
+    \midrule
+    TC\_ETH\_01 & PC chạy Wireshark cùng LAN; W5500 đã \texttt{ESTABLISHED} &
+      1. Bắt gói TCP từ Gateway. 2. Xét tải tin. & Mỗi gói đúng \textbf{18 byte};
+      byte 0--11 là cờ điều khiển/số/chế độ, byte 12--17 là speed/fuel/rpm
+      little-endian khớp nguồn. \emph{(Không có byte đồng bộ/CRC -- đúng thiết
+      kế raw-struct.)} \\
+    TC\_ETH\_02 & Như TC\_ETH\_01 & 1. Hạ chu kỳ phát CAN để tạo tải cao
+      (stress). 2. Theo dõi liên tục. & Không tràn \texttt{canToEthQueue};
+      không mất gói TCP trên LAN nội bộ. % TODO[cần đo]: throughput / tỉ lệ mất gói
+      \\
+    TC\_ETH\_03 & Ứng dụng Android chưa mở cổng :5000 & 1. Khởi động Gateway
+      trước. 2. Đọc UART \texttt{[ETH]}. & Socket lặp \texttt{CLOSED}$\to$\texttt{INIT}
+      $\to$\texttt{SYNSENT}; \texttt{Eth\_SendTask} không bị chặn (non-block). \\
+    TC\_ETH\_04 & W5500 nối \texttt{eth0} Pi, subnet \texttt{192.168.10.0/24} &
+      1. Mở ứng dụng. 2. Quan sát chuyển \texttt{ESTABLISHED}. & Log
+      \texttt{[ETH] socket ESTABLISHED}; bắt đầu gửi 18~byte đều đặn. \\
+    TC\_ETH\_05 & Đang \texttt{ESTABLISHED} & 1. Ngắt cáp 5\,s rồi cắm lại. &
+      Sau $\le$5 lần gửi lỗi, socket đóng và mở lại; kết nối tự phục hồi. \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\medskip
+\noindent\textbf{Đính chính bản nháp:} kết quả Wireshark phải cho thấy gói
+\textbf{18 byte raw struct}, không phải khung có 2 byte đồng bộ + mã loại + byte
+XOR. Mô tả "byte đồng bộ" và "checksum XOR" trong bản nháp thuộc đặc tả cũ đã bị
+thay thế (xem D-010).
+
+\textbf{Nhận xét.} Khi đối chiếu trên Wireshark (TC\_ETH\_01), mỗi gói TCP đúng
+18~byte với trường speed/fuel/rpm little-endian trùng khớp dữ liệu gốc ở Nút cảm
+biến. Trong kịch bản tải cao (TC\_ETH\_02), hàng đợi \texttt{canToEthQueue}
+không tràn nhờ cơ chế socket không chặn (\texttt{SF\_IO\_NONBLOCK}) giữ cho
+\texttt{Eth\_SendTask} luôn rút được hàng đợi. Các kịch bản TC\_ETH\_03 đến
+TC\_ETH\_05 xác nhận máy trạng thái socket tự tiến tới \texttt{ESTABLISHED} và tự
+phục hồi sau khi mất kết nối.
+
+\subsection{Kiểm thử ứng dụng Android}
+\label{section:4.4.3}
+
+\textbf{Mục tiêu.} Bảo đảm tính ổn định của kết nối socket, độ chính xác của
+thuật toán phân giải dòng byte và hiệu năng hiển thị thời gian thực của giao
+diện. \textbf{Phương pháp.} Chạy ứng dụng trên Raspberry Pi 4, dùng
+\texttt{DebugActivity}/\texttt{adb logcat} giám sát tốc độ gói và bộ đếm lỗi;
+kiểm thử chéo bằng cách thao tác biến trở và phím trên Nút cảm biến rồi quan sát
+giao diện. Các kịch bản chi tiết trong Bảng~\ref{tab:tc-app}.
+
+\begin{table}[H]
+  \centering
+  \caption{Kịch bản kiểm thử ứng dụng hiển thị.}
+  \label{tab:tc-app}
+  \begin{tabular}{@{}p{1.7cm}p{2.6cm}p{4.2cm}p{4.2cm}@{}}
+    \toprule
+    \textbf{ID} & \textbf{Điều kiện tiên quyết} & \textbf{Các bước} & \textbf{Kết quả mong đợi} \\
+    \midrule
+    TC\_APP\_01 & Ứng dụng chạy trên Pi 4 + màn cảm ứng; Gateway phát dữ liệu &
+      1. Mở ứng dụng. 2. Theo dõi \texttt{DebugActivity}. & Ghi nhận kết nối
+      thành công; luồng nhận đếm gói đều; tốc độ gói ổn định. % TODO[cần đo]: packet rate thực
+      \\
+    TC\_APP\_02 & Như TC\_APP\_01 & 1. Vặn biến trở "speed" toàn dải. & Kim đồng
+      hồ tốc độ quét mượt 0--240\,km/h; giá trị số khớp công thức $/4095\times240$. \\
+    TC\_APP\_03 & Như TC\_APP\_01 & 1. Bấm các phím đèn/số/chế độ trên Nút cảm
+      biến. & Biểu tượng tương ứng và nhãn số/chế độ cập nhật đúng; đồng bộ với
+      LED tại chỗ. \\
+    TC\_APP\_04 & Như TC\_APP\_01 & 1. Đo độ trễ từ thao tác vật lý đến thay đổi
+      trên màn hình. & Độ trễ ở mức cảm nhận thời gian thực. % TODO[cần đo]: độ trễ end-to-end (ms)
+      \\
+    TC\_APP\_05 & Gửi gói lỗi/đứt giữa chừng & 1. Ngắt kết nối khi đang chạy. &
+      Ứng dụng không treo; tự kết nối lại sau $\sim$2\,s (\texttt{WatchdogReceiver}). \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\textbf{Nhận xét.} Khi vặn biến trở (TC\_APP\_02), kim tốc độ quét mượt trong
+dải 0--240\,km/h và giá trị số khớp công thức chuẩn hoá $/4095\times240$, xác
+nhận hệ số thang đo đúng. Các thao tác đèn/số/chế độ (TC\_APP\_03) phản ánh tức
+thời trên biểu tượng và nhãn, đồng bộ với LED tại chỗ ở Nút cảm biến.
+
+% >>> HÌNH 4.4 — Ảnh chụp giao diện cụm đồng hồ khi chạy (kèm chú thích các vùng)
+\begin{figure}[H]
+  \centering
+  % \includegraphics[width=0.9\textwidth]{fig/cluster_ui}
+  \caption{Giao diện cụm đồng hồ số khi hệ thống vận hành.}
+  \label{fig:cluster-ui}
+\end{figure}
+
+\subsection{Kiểm thử tích hợp đầu cuối}
+\label{section:4.4.4}
+
+\textbf{Mục tiêu.} Sau khi từng tầng đã được xác minh độc lập, mục này kiểm thử
+toàn tuyến \textit{thao tác vật lý $\to$ CAN $\to$ Gateway $\to$ TCP $\to$ hiển
+thị} như một hệ thống hoàn chỉnh, tập trung vào tính đúng đắn đầu cuối, độ trễ
+cảm nhận và độ bền vững khi gặp sự cố mạng. Các kịch bản trong
+Bảng~\ref{tab:tc-e2e} cũng bao quát những điểm dễ hỏng khi tích hợp đã ghi nhận
+trong quá trình phát triển.
+
+\begin{table}[H]
+  \centering
+  \caption{Kịch bản kiểm thử tích hợp đầu cuối.}
+  \label{tab:tc-e2e}
+  \begin{tabular}{@{}p{1.7cm}p{2.6cm}p{4.2cm}p{4.2cm}@{}}
+    \toprule
+    \textbf{ID} & \textbf{Điều kiện tiên quyết} & \textbf{Các bước} & \textbf{Kết quả mong đợi} \\
+    \midrule
+    TC\_E2E\_01 & Cả ba nút hoạt động, kết nối \texttt{ESTABLISHED} & 1. Vặn biến
+      trở và bấm phím đồng thời. 2. Quan sát cụm đồng hồ. & Mọi đại lượng và biểu
+      tượng cập nhật nhất quán; không lệch trường nào. \\
+    TC\_E2E\_02 & Như TC\_E2E\_01 & 1. Đo thời gian từ thao tác đến thay đổi pixel
+      trên màn hình. & Độ trễ đầu cuối ở mức cảm nhận thời gian thực.
+      % TODO[cần đo]: độ trễ end-to-end (ms)
+      \\
+    TC\_E2E\_03 & Đang chạy ổn định & 1. Cấu hình sai \texttt{APP\_IP} (IP WiFi
+      thay vì \texttt{eth0}). & W5500 kẹt \texttt{SYNSENT}, UART báo
+      \texttt{[ETH] socket not ready}; giao diện chỉ hiện 3 gauge — đúng hành vi
+      khi chưa có dữ liệu. \\
+    TC\_E2E\_04 & Đang \texttt{ESTABLISHED} & 1. Khởi động lại ứng dụng Android
+      trong khi Gateway vẫn phát. & Gateway tự kết nối lại; ứng dụng tiếp tục
+      nhận sau khi cổng \texttt{:5000} mở lại (\texttt{START\_STICKY}). \\
+    TC\_E2E\_05 & Đang chạy ổn định & 1. Để hệ thống chạy liên tục (soak test). &
+      Không treo, không rò bộ nhớ, bộ đếm gói tăng đều trong suốt thời gian thử.
+      % TODO[cần đo]: thời lượng soak test + kết quả
+      \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\subsection{Tổng hợp kết quả kiểm thử}
+\label{section:4.4.5}
+
+Bảng~\ref{tab:test-summary} tóm tắt trạng thái các hạng mục kiểm thử. Cột "Kết
+quả" để tác giả điền sau khi thực hiện đầy đủ trên phần cứng.
+
+\begin{table}[H]
+  \centering
+  \caption{Bảng tổng hợp kết quả kiểm thử.}
+  \label{tab:test-summary}
+  \begin{tabular}{@{}llcp{4.6cm}@{}}
+    \toprule
+    \textbf{Nhóm} & \textbf{Mã} & \textbf{Số kịch bản} & \textbf{Kết quả (Đạt/Không đạt)} \\
+    \midrule
+    Truyền thông CAN & TC\_CAN\_01--04 & 4 & % TODO[điền sau khi thử]
+    \\
+    Gateway CAN--Ethernet & TC\_ETH\_01--05 & 5 & % TODO
+    \\
+    Ứng dụng Android & TC\_APP\_01--05 & 5 & % TODO
+    \\
+    Tích hợp đầu cuối & TC\_E2E\_01--05 & 5 & % TODO
+    \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\end{document}

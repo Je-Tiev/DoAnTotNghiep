@@ -1,0 +1,93 @@
+% =====================================================================
+%  CHƯƠNG 6 — KẾT LUẬN VÀ HƯỚNG PHÁT TRIỂN
+%  Nguồn facts: architecture/* + DECISIONS.md. Không bịa số đo.
+% =====================================================================
+\documentclass[../DoAn.tex]{subfiles}
+\begin{document}
+
+\section{Kết luận}
+\label{section:6.1}
+
+Đồ án đã xây dựng thành công một hệ thống mô phỏng mạng truyền thông trên ô tô
+hoàn chỉnh theo mô hình ba tầng: Nút cảm biến (STM32F103) thu thập đầu vào và sở
+hữu trạng thái xe, Nút cổng kết nối (STM32F103 + W5500) dịch giao thức từ CAN
+sang Ethernet/TCP, và ứng dụng Android trên Raspberry Pi~4 hiển thị cụm đồng hồ
+số. Toàn tuyến dữ liệu \textit{đầu vào vật lý $\to$ CAN $\to$ Gateway $\to$ TCP
+$\to$ giao diện} đã vận hành thông suốt và được kiểm thử ở cả cấp module lẫn cấp
+tích hợp (Chương~4).
+
+\subsection*{Những kết quả đã đạt được}
+\begin{itemize}
+  \item Mạng CAN hai khung (\texttt{0x100} điều khiển, \texttt{0x200} cảm biến)
+    ở 250~kbps, có kiểm lỗi CRC8 và theo dõi số thứ tự ở lớp ứng dụng.
+  \item Cầu nối CAN--Ethernet thời gian thực với cơ chế đệm hàng đợi và socket
+    không chặn, không mất khung khi phía nhận chưa sẵn sàng và tự phục hồi sau sự
+    cố mạng (\ref{section:5.1}).
+  \item Giao thức tải tin tối giản 18~byte tận dụng bảo đảm của TCP, kèm cơ chế
+    tích luỹ trạng thái lai cho ảnh chụp luôn đầy đủ (\ref{section:5.2}).
+  \item Ứng dụng hiển thị bền vững nhờ dịch vụ nền, tự khởi động lại và tự kết nối
+    lại, với giao diện cụm đồng hồ tự co giãn theo độ phân giải màn hình.
+\end{itemize}
+
+\subsection*{So sánh với các sản phẩm tương tự}
+So với một cụm đồng hồ số thương mại trên xe hiện đại, sản phẩm của đồ án là một
+\emph{mô hình mô phỏng phục vụ học tập}, không nhằm thay thế hệ thống đạt chuẩn ô
+tô. Các hệ thống thương mại thường vận hành trên nền tảng phần mềm chuẩn hoá
+(ví dụ AUTOSAR), cổng kết nối đạt chuẩn an toàn chức năng và sử dụng CAN-FD hoặc
+Automotive Ethernet. Tuy nhiên, trong phạm vi học thuật, đồ án tái hiện trung
+thực \emph{triết lý kiến trúc} của một mạng ô tô thực: phân tách rõ ECU nguồn
+trạng thái -- gateway dịch giao thức -- head-unit hiển thị, với ranh giới trách
+nhiệm được giữ vững xuyên suốt. Đây là điểm tương đồng cốt lõi về mặt thiết kế,
+đồng thời là giá trị giáo dục của sản phẩm.
+
+\subsection*{Những phần chưa hoàn thiện}
+\begin{itemize}
+  \item Một số chỉ số hiệu năng (độ trễ đầu cuối, thông lượng tối đa, tỉ lệ mất
+    gói, thời lượng soak test) chưa được đo đạc đầy đủ và còn để trống trong các
+    kịch bản kiểm thử (Chương~4).
+  \item Hệ thống dùng địa chỉ IP tĩnh và liên kết điểm-điểm, chưa hỗ trợ nhiều
+    màn hình/khách hàng hay cấu hình mạng linh hoạt.
+  \item Chưa có lớp bảo mật cho kênh truyền và chưa hỗ trợ các nghi thức chẩn đoán
+    chuẩn ô tô.
+\end{itemize}
+
+\subsection*{Bài học kinh nghiệm}
+Quá trình thực hiện đem lại nhiều bài học thực tiễn: (1) trong hệ nhúng đa nhiệm,
+\emph{thứ tự khởi tạo} và \emph{quyền sở hữu tài nguyên} quyết định độ ổn định
+nhiều như bản thân thuật toán (\ref{section:5.4}); (2) khi tầng dưới đã cung cấp
+một bảo đảm, lặp lại nó ở tầng trên chỉ làm tăng độ phức tạp mà không tăng độ tin
+cậy (\ref{section:5.2}); (3) việc giữ vững ranh giới trách nhiệm giữa các tầng
+giúp khắc phục lỗi đúng chỗ và tránh lan toả thay đổi (\ref{section:5.6}); và
+(4) log chẩn đoán có chủ đích là công cụ gỡ lỗi hiệu quả hơn nhiều so với thông
+báo lỗi chung chung (\ref{section:5.5}).
+
+\section{Hướng phát triển}
+\label{section:6.2}
+
+\subsection*{Hoàn thiện các chức năng hiện có}
+\begin{itemize}
+  \item \textbf{Đo đạc và đánh giá hiệu năng:} hoàn tất các phép đo còn để trống
+    — độ trễ đầu cuối, thông lượng, tỉ lệ mất gói, độ ổn định khi chạy dài — kèm
+    ảnh chụp dạng sóng CAN, ảnh giải mã và ảnh Wireshark để minh chứng.
+  \item \textbf{Mở rộng tập tín hiệu:} bổ sung thêm khung/tín hiệu CAN (nhiệt độ,
+    áp suất, quãng đường thực) và đưa các cảnh báo hiện đang suy diễn ở ứng dụng
+    về đúng nguồn dữ liệu nếu cần độ chân thực cao hơn.
+  \item \textbf{Cấu hình mạng linh hoạt:} hỗ trợ cấu hình địa chỉ động hoặc khám
+    phá thiết bị, thay cho IP tĩnh cố định.
+\end{itemize}
+
+\subsection*{Các hướng nâng cấp mới}
+\begin{itemize}
+  \item \textbf{Nâng cấp lớp vật lý:} chuyển sang CAN-FD để tăng dung lượng tải
+    và tốc độ, hoặc Automotive Ethernet cho băng thông cao hơn.
+  \item \textbf{Chẩn đoán theo chuẩn ô tô:} tích hợp nghi thức chẩn đoán (ví dụ
+    UDS) để đọc lỗi và giám sát tình trạng các nút.
+  \item \textbf{Bảo mật truyền thông:} bổ sung xác thực và mã hoá kênh TCP, cũng
+    như cơ chế chống giả mạo khung trên CAN.
+  \item \textbf{Mở rộng quy mô hiển thị:} cho phép nhiều màn hình/khách hàng cùng
+    nhận trạng thái, tiến tới mô hình phân phối dữ liệu nhiều người tiêu thụ.
+  \item \textbf{Giám sát từ xa và cập nhật phần mềm:} đẩy dữ liệu telemetry lên
+    nền tảng đám mây và hỗ trợ cập nhật firmware qua mạng (OTA).
+\end{itemize}
+
+\end{document}

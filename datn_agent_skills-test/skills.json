@@ -1,0 +1,52 @@
+[
+  {
+    "name": "arch-doc-sync",
+    "description": "Keep project_setup/architecture/*.md in sync with the code after a change, so future AI sessions stay accurate. Use after modifying firmware, the CAN protocol, the TCP payload, or the Android app.",
+    "file": ".agents/skills/general/arch-doc-sync/SKILL.md"
+  },
+  {
+    "name": "can-protocol",
+    "description": "Add or change CAN frames, signals, CRC8, or sequence handling between the Sensor and Gateway ECUs. Use whenever the CAN message layout (0x100/0x200) or its encode/decode changes.",
+    "file": ".agents/skills/firmware/can-protocol/SKILL.md"
+  },
+  {
+    "name": "cluster-ui",
+    "description": "Work on the Android ClusterApp — TCP packet parsing, VehicleState model, derived warnings, and GaugeView/indicator rendering. Use for any change in ClusterApp/.",
+    "file": ".agents/skills/android/cluster-ui/SKILL.md"
+  },
+  {
+    "name": "cubeide-build-flash",
+    "description": "Build, flash, and debug the STM32F103 firmware (STM32CubeIDE / arm-none-eabi-gcc / ST-Link) and read UART debug output. Use to compile a node, program the board, or set up a build invocation.",
+    "file": ".agents/skills/firmware/cubeide-build-flash/SKILL.md"
+  },
+  {
+    "name": "freertos-task-manager",
+    "description": "Design, add, or modify FreeRTOS tasks, queues, timers, and mutexes (CMSIS-RTOS v2) on the STM32 nodes. Use when changing concurrency, task timing, priorities, or inter-task messaging.",
+    "file": ".agents/skills/firmware/freertos-task-manager/SKILL.md"
+  },
+  {
+    "name": "git-ops-manager",
+    "description": "Run Git operations across the monorepo and its three submodules (STM32-1st, STM32-2nd, ClusterApp). Use for commits, branches, pushes, and keeping submodule pointers in sync on Windows/PowerShell.",
+    "file": ".agents/skills/general/git-ops-manager/SKILL.md"
+  },
+  {
+    "name": "report-writer",
+    "description": "Draft, revise, or fact-check the Vietnamese graduation thesis (đồ án tốt nghiệp) in LaTeX, pulling every technical fact and citation from project_setup/architecture/*. Use when writing or editing any chapter/section of the báo cáo, or when turning code/architecture into prose, figures, and tables.",
+    "file": ".agents/skills/general/report-writer/SKILL.md"
+  },
+  {
+    "name": "stm32-hal-driver",
+    "description": "Write or modify STM32F103 peripheral drivers using the STM32 HAL (GPIO, SPI, ADC/DMA, USART, CAN). Use when adding/changing a peripheral or low-level driver in STM32-1st or STM32-2nd.",
+    "file": ".agents/skills/firmware/stm32-hal-driver/SKILL.md"
+  },
+  {
+    "name": "task-breakdown",
+    "description": "Decompose a feature/bug across the embedded stack into ordered, layer-aware sub-tasks. Use when planning a change that may span Sensor ECU, CAN, Gateway, and Android.",
+    "file": ".agents/skills/general/task-breakdown/SKILL.md"
+  },
+  {
+    "name": "w5500-ethernet",
+    "description": "Work on the Gateway's W5500 Ethernet/TCP client — socket state machine, network config, and the 18-byte payload send. Use for connectivity, reconnection, or packet-format changes on STM32-2nd.",
+    "file": ".agents/skills/firmware/w5500-ethernet/SKILL.md"
+  }
+]

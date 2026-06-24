@@ -1,0 +1,12 @@
+# Agent-config junctions created by datn_agent_skills-test/.claude/setup.ps1.
+# These are directory junctions, not real content — the source of truth lives in
+# datn_agent_skills-test/.agents and datn_agent_skills-test/.claude. Re-create on
+# any machine with:  powershell -ExecutionPolicy Bypass -File datn_agent_skills-test/.claude/setup.ps1
+/.claude/
+/.agents/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
